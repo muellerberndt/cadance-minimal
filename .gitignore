@@ -68,6 +68,7 @@
 !/site/brainviz.js
 !/site/brainstage.js
 !/site/mixerstage.js
+!/site/screenstage.js
 !/site/curator.js
 !/site/deckworklet.js
 !/site/djfx.js

@@ -28,7 +28,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SITE = ROOT / "site"
 PAGE = {"index.html": SITE / "radio.html", "radio.css": SITE / "radio.css", "radio.js": SITE / "radio.js", "radio-app.js": SITE / "radio-app.js",
         "autodj.js": SITE / "autodj.js", "brainstage.js": SITE / "brainstage.js", "brainviz.js": SITE / "brainviz.js", "djfx.js": SITE / "djfx.js",
-        "devices.js": SITE / "devices.js", "mixerstage.js": SITE / "mixerstage.js", "deckworklet.js": SITE / "deckworklet.js",
+        "devices.js": SITE / "devices.js", "mixerstage.js": SITE / "mixerstage.js", "screenstage.js": SITE / "screenstage.js", "deckworklet.js": SITE / "deckworklet.js",
         "ui.mjs": ROOT / "engine" / "ui.mjs", "engine.mjs": ROOT / "engine" / "engine.mjs",
         "favicon.svg": SITE / "brand" / "favicon.svg", "assets/consent.js": SITE / "brand" / "consent.js"}
 BINARY = {"og.png": SITE / "brand" / "og.png"}         # the preview image of a shared link (made from site/brand/social-card.html)

@@ -12,6 +12,7 @@ import { BrainViz } from './brainviz.js';
 import { Devices } from './devices.js';
 import { FxUnit } from './djfx.js';
 import { MixerStage } from './mixerstage.js';
+import { ScreenStage } from './screenstage.js';
 
 const R = window.__radio;
 await R.ready;
@@ -396,7 +397,6 @@ const djc = $('djv'), dg = djc.getContext('2d');
 // the views in the menu's order; the OPH screen (screenstage.js) once its module is in the build and it can draw
 const VIEWS = ['brain', 'mri', 'connectome', 'devices', 'dj', 'amiga', 'screen'];
 const VIZ_MODE = { mri: 'mri', connectome: 'connectome', amiga: 'cadance' };
-const ScreenStage = null;                        // the OPH screen's module, mounted with screenstage.js
 const shown = () => VIEWS.filter((v) => v !== 'screen' || (ScreenStage && (!screenTried || screen)));
 const OLD = { 'm:connectome': 'connectome', 'm:cadance': 'amiga' };            // a returning visitor's view from before the menu
 let view = (() => { const v = store.get('view', 'brain'); return OLD[v] || (VIEWS.includes(v) && v !== 'screen' ? v : 'brain'); })();
