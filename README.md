@@ -9,6 +9,8 @@ whole tracks the brain composed ahead.
   is read, the play settings, and what did not work.
 - [Running the code](docs/running.md): the player's pages, the files it expects, composing tracks
   ahead, the tests, hosting.
+- [Building your own score](docs/score.md): the format the trainer reads, the transcription
+  pipeline as it was built with what was measured at each stage, and a skeleton to fill.
 - [The Cadence tutorial](https://github.com/muellerberndt/cadence/blob/main/docs/tutorials/minimal-techno.md):
   the general lessons of this project, told for any application with many motor slots.
 
@@ -19,13 +21,14 @@ whole tracks the brain composed ahead.
 | `brain/` | The trainer (`train.py`), the bar and the observation (`common.py`), the layouts (`layouts.py`, `hierarchy.py`, `anatomy.py`), the readings (`gate.py`, `composition.py`, `quality.py`), the layout checks (`check.py`) and tests |
 | `site/` | The player: a local server (`serve.py`) with the player page, Stats, the mixer with the Auto DJ, the repertoire curator, a tool that composes whole tracks ahead (`shelf.py`), and the play settings (`play-reading.json`) |
 | `engine/` | The audio engine in JavaScript: modelled 606, 808 and 909 drums and one-shots of the three machines (`engine/samples/`, with their source), an acid voice and a general synth voice, an offline renderer and its checks |
+| `pipeline/` | The transcription pipeline as a skeleton: the score format with a validator, the generic parts of each stage, stubs for the readers, and a generator of a small synthetic score and pool in the real format |
 | `tools/` | Counters for composed tracks: notes per bar by segment, repeats, held bars, kick patterns |
-| `docs/` | The two documents above |
+| `docs/` | The three documents above |
 
 | Not here | Why |
 | --- | --- |
 | The recordings and the score | The brains learned from a private collection of recordings, transcribed into a symbolic score. Neither is in this repository |
-| The transcription pipeline | The code that reads recordings into the score is not part of this first cut |
+| The readers of the transcription pipeline | Their trained models, the benchmark clips they were scored on and the scripts that ran them on the material. `pipeline/` holds the skeleton |
 | The sound pool | The player's sounds were fitted to the recordings. The pool file a brain names is not included |
 | The trained brains | A brain is a card (`.json`) and its weights (`.npz`, about 600 MB). None is included yet |
 | Cloud training scripts | The scripts that started and watched training machines are tied to one account |
@@ -68,7 +71,8 @@ python brain/train.py --name my_echo --layout inst_reads_echo2 \
 ```
 
 It needs a score file and a pool file in the formats `brain/common.py` reads (`load_streams`), which
-this repository does not ship. The player finds a run's checkpoints under `quality/composer/<name>/`.
+this repository does not ship; [docs/score.md](docs/score.md) gives both formats, and
+`python -m pipeline.toy_score OUT --check` writes a small synthetic pair that the loader accepts. The player finds a run's checkpoints under `quality/composer/<name>/`.
 
 Of the 47 tests in `brain/test_composer.py`, 40 pass on Cadence 0.104.1; seven that drive a whole
 training run are behind the trainer's last changes.

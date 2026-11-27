@@ -11,9 +11,15 @@
 !/site/
 !/engine/
 !/tools/
+!/pipeline/
 
 /docs/*
 !/docs/*.md
+
+# the transcription pipeline as a skeleton, with a synthetic score in the real format
+/pipeline/*
+!/pipeline/*.py
+!/pipeline/README.md
 
 /tools/*
 !/tools/track_summary.py
