@@ -2,10 +2,10 @@
 // loaded before radio-app.js. The Auto DJ (autodj.js) asks for tracks through /api/autodj/*; here those calls are
 // answered from the track store: tracks.json at the store's base URL ({"tracks": [{id, file, brain, bars, bpm, seconds,
 // score?}]}), the MP3 of a track fetched and decoded when the Auto DJ takes it, and its note file ("score": the bars
-// as the brain wrote them, with its recorded view) for the views. The brains take turns by their weight, and a brain's
-// tracks come at random by their weight (the pick, below); the manifest is read again as the set goes, so new tracks
-// and weights count without a reload. The setting "Live brain (server
-// URL)" is checked here at load: in this version a live brain is reported, and the radio plays on.
+// as the brain wrote them, with its recorded view) for the views, and the sound pool a track names. The brains take
+// turns by their weight, and a brain's tracks come at random by their weight (the pick, below); the manifest is read
+// again as the set goes, so new tracks and weights count without a reload. The setting "Live brain (server URL)" is
+// checked here at load: in this version a live brain is reported, and the radio plays on.
 (() => {
   const STORE = 'https://cadance-radio.s3.amazonaws.com';       // the public track store (tracks.json, tracks/<id>.mp3)
   const KEY = 'cadance.api';
@@ -18,7 +18,7 @@
   const given = (q.get('tracks') || '').trim();
   const manifestUrl = given ? (/\.json(\?|$)/.test(given) ? given : `${given.replace(/\/+$/, '')}/tracks.json`) : `${STORE}/tracks.json`;
   const base = manifestUrl.replace(/[^/]*$/, '');
-  const state = { mode: 'radio', api, note: OFFLINE, detail: '', played: [], tracks: 0, store: base, error: '' };
+  const state = { mode: 'radio', api, note: OFFLINE, detail: '', played: [], tracks: 0, store: base, error: '', defaultBpm: 145, bpm: null };
   window.__radio = state;
 
   // a live brain: the URL answers /api/status within 4 s (in this version it is reported; the radio plays)
@@ -102,8 +102,20 @@
     rounds.set(b, q); lastOf.set(b, id);
     return entries.find((t) => t.id === id);
   }
+  // A file plays at the tempo it was rendered at, so a set keeps one tempo: the page's (145) when the store has tracks
+  // at it, else the tempo most tracks have; tracks at another tempo wait for a set of their own.
+  function setTempo(all) {
+    const at = (b) => all.filter((t) => weightOf(t) > 0 && Math.abs(t.bpm - b) < 0.01).length;
+    if (at(state.defaultBpm)) return state.defaultBpm;
+    let best = null;
+    for (const t of all) if (weightOf(t) > 0 && (best === null || at(t.bpm) > at(best))) best = t.bpm;
+    return best;
+  }
   async function nextEntry() {
-    const all = await manifest(true), by = new Map();
+    let all = await manifest(true);
+    if (state.bpm == null) state.bpm = setTempo(all);
+    all = all.filter((t) => Math.abs(t.bpm - state.bpm) < 0.01);
+    const by = new Map();
     for (const t of all) {
       const b = String(t.brain || '');
       if (weightOf(t) > 0 && brainWeight(b) > 0) (by.get(b) || by.set(b, []).get(b)).push(t);
@@ -123,6 +135,13 @@
     return only || null;
   }
   state.entries = () => list || [];
+  // the sound pool a track names (the devices view): <store>/pool/<name>, read once per name
+  const pools = new Map();
+  state.pool = (name) => {
+    if (!name || /[/\\]|^\./.test(name)) return Promise.resolve(null);
+    if (!pools.has(name)) pools.set(name, realFetch(`${base}pool/${encodeURIComponent(name)}`).then((r) => (r.ok ? r.json() : null)).catch(() => null));
+    return pools.get(name);
+  };
   const url = (file) => (/^https?:/.test(file) ? file : base + file.replace(/^\/+/, ''));
   // when the Auto DJ takes a track its note file is read (about 0.5 MB gzipped); the MP3 is fetched and decoded (an
   // AudioBuffer at 44.1 kHz, 188 MB for 534 s) only when a deck cues it, and let go when the deck stops, so no more
