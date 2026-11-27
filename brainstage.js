@@ -16,7 +16,7 @@
 //   MEMORY  a ring of the remembered bars; the recall heads' beams reach the cells they read in this bar
 //
 // The loop: each mark leaves the hands at its strike, travels under the brain and lands at the bar line in the same
-// cell of the ear's first block, so the bar just played is the pattern of the block "-1" of the next bar; the
+// cell of the ear's first block, so the bar just played is what the ear's first block holds in the next bar; the
 // older blocks step back. A second copy goes to the memory ring's newest cell, which fills as the bar is played.
 //
 // Colour: cyan is the base. Each instrument pathway (beat, bass, lead, air) has a tint, carried by its plan and
@@ -365,18 +365,20 @@ void main() {
 }`;
 const FS_OUT = `
 precision mediump float; varying vec2 vUV; uniform sampler2D uTex;
-uniform float uFold, uSplit, uGhost, uAspect, uScan, uTime, uGain;
+uniform float uFold, uMirror, uSplit, uGhost, uAspect, uScan, uTime, uGain;
 uniform vec3 uRed, uBlue;
 vec2 fold(vec2 uv) {
   vec2 c = (uv - 0.5) * vec2(uAspect, 1.0);
-  float r = length(c), a = atan(c.y, c.x), seg = 3.14159265 / 3.0;
+  float r = length(c), a = atan(c.y, c.x), seg = 3.14159265 / 6.0;
   a = mod(a + uTime * 0.05, 2.0 * seg); a = abs(a - seg);
-  vec2 f = vec2(cos(a), sin(a)) * r;
+  // drawn larger, and on an upright canvas the folded slice runs along the long side, where the brain is
+  vec2 f = (uAspect < 1.0 ? vec2(sin(a), cos(a)) : vec2(cos(a), sin(a))) * r * 0.6;
   return f / vec2(uAspect, 1.0) + 0.5;
 }
 void main() {
   vec2 uv = mix(vUV, fold(vUV), uFold);
   vec3 c = texture2D(uTex, uv).rgb;
+  if (uMirror > 0.01) c = max(c, texture2D(uTex, vec2(1.0 - uv.x, uv.y)).rgb * uMirror);     // the tunnel: left and right mirror each other
   if (uGhost > 0.004) {                           // the split: the picture's red and blue ghosts part, on a kick or a cut
     vec2 d = (uv - 0.5) * uSplit + vec2(uSplit * 0.4, 0.0);
     float l1 = dot(texture2D(uTex, uv + d).rgb, vec3(0.3, 0.45, 0.25)), l2 = dot(texture2D(uTex, uv - d).rgb, vec3(0.3, 0.45, 0.25));
@@ -567,7 +569,7 @@ export class BrainStage {
     const big = ['HEARS', 'PLANS', 'PLAYS', 'MEMORY'];
     const small = ['the code', 'coordinator', 'upper coordinator', 'prefrontal', 'beat plan', 'bass plan', 'lead plan', 'air plan',
       'rhythm plan', 'melody plan', 'beat detail', 'bass detail', 'lead detail', 'air detail', 'rhythm detail', 'melody detail', 'plan', 'detail',
-      'beat', 'bass', 'lead', 'air', 'rhythm', 'melody', '-1', '-2', '-4', '-8', '-16', 'kick', 'snare', 'hats'];
+      'beat', 'bass', 'lead', 'air', 'rhythm', 'melody', 'kick', 'snare', 'hats'];
     let x = 4, y = 4, rowH = 0;
     const put = (text, px, track) => {
       g.font = `${px >= 30 ? 500 : 400} ${px}px ${MONO}`;
@@ -835,7 +837,6 @@ export class BrainStage {
       if (pl && de && (!lowest || pl[1] < lowest[0][1])) lowest = [pl, de];
     });
     if (lowest) { small('plan', [lowest[0][0], lowest[0][1] - 0.42, 0], -1, { tall: true }); small('detail', [lowest[1][0], lowest[1][1] - 0.42, 0], -1, { tall: true }); }
-    if (this.lagBlocks) for (let b = 0; b < this.lagBlocks; b++) { const o = this.blockOrigin(b); small('-' + (LAGS[b] || b + 1), [o.x - 0.06, o.y + H.h * o.s * (b ? 0.985 : 0.6), o.z], -1); }
     this.labelList = out;
   }
 
@@ -1163,7 +1164,7 @@ export class BrainStage {
     p = P.out; gl.useProgram(p.p);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, c.width, c.height);
     bind(0, F.keepB.tex); gl.uniform1i(p.u.uTex, 0);
-    gl.uniform1f(p.u.uFold, this.partyK * (calm ? 0.0 : 1.0)); gl.uniform1f(p.u.uSplit, calm ? 0 : 0.016 * this.split); gl.uniform1f(p.u.uGhost, calm ? 0 : clamp(this.split * 0.9, 0, 0.7));
+    gl.uniform1f(p.u.uFold, this.partyK * (calm ? 0.0 : 1.0)); gl.uniform1f(p.u.uMirror, this.tunnelK); gl.uniform1f(p.u.uSplit, calm ? 0 : 0.016 * this.split); gl.uniform1f(p.u.uGhost, calm ? 0 : clamp(this.split * 0.9, 0, 0.7));
     gl.uniform3fv(p.u.uRed, pal.r); gl.uniform3fv(p.u.uBlue, pal.b);
     gl.uniform1f(p.u.uAspect, aspect); gl.uniform1f(p.u.uScan, 1); gl.uniform1f(p.u.uTime, now); gl.uniform1f(p.u.uGain, 1.0);
     quad(p);
