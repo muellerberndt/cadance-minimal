@@ -103,10 +103,42 @@ lists the runs it finds under `quality/composer/<name>/`.
 | The player's requests | `cd site && python -m unittest test_playback test_stats_live` | the Cadence library |
 | The page in a browser | `python site/e2e_test.py 8793` | Playwright, and a test instance on that port with a brain |
 
+## The radio site
+
+[cadance.floatingpragma.ai](https://cadance.floatingpragma.ai) is a static page. In radio mode its
+Auto DJ mixes whole tracks that Cadance brains composed ahead. The tracks are MP3 files, rendered
+by the engine with the player's mix settings and picked at random; the visuals follow the audio.
+No brain runs anywhere while the radio plays, and the page shows "Cadance brain offline, radio mode
+active".
+
+Live composing is a different mode: a brain writes the next bar while you listen. That needs a
+server.
+
+## A live composer for the radio site
+
+A live composer is this repository's player server with a brain loaded. The radio page talks to it
+when you name its address in the page's settings (the gear icon, "Live composer server (API URL)").
+
+What it takes:
+
+1. Python 3.11 or later and the library: `python -m pip install "cadence-net[fast]==0.104.1" numpy`.
+2. A trained brain (its card and weights in `site/pinned/`), the sound pool its card names (in
+   `pool/`) and the score it names (in `corpus/`, for starting passages). None of the three is
+   shipped. [brains.md](brains.md) says how the brains were built and trained and
+   [score.md](score.md) how a score is made.
+3. About 2 GB of memory for the brain. A bar takes about 2 seconds on a laptop CPU, about as long
+   as the bar lasts.
+4. `python site/serve.py`. The server listens on 127.0.0.1, port 8792.
+5. On the radio page: the gear icon, the address `http://127.0.0.1:8792`, save. The status reads
+   "Live composer connected" when the server answers, and the page then behaves as the mixer of
+   the local player.
+
+The server answers the radio site's origin and local pages (`CADANCE_CORS_ORIGINS` adds origins,
+comma separated). A browser lets an https page call a server on the same computer over http. A
+server on another machine needs an https address in front of it, and it has no access control of
+its own: put it behind something that has.
+
 ## Hosting without a server
 
-Live composing needs the Python server: a brain in memory (about 1.8 GB) that settles one bar in
-about 2 seconds on a laptop. The rest runs in the browser. The engine, the mixer and the Auto DJ
-are JavaScript and only fetch tracks and the pool, so a static page can play tracks composed
-ahead. A 304-bar track is about 3 MB of JSON, about 0.5 MB gzipped. Such a static page is not in
-the repository yet.
+Live composing needs the Python server: a brain in memory that settles one bar in about 2 seconds
+on a laptop. The rest runs in the browser, which is what the radio site uses.

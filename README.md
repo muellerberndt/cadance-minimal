@@ -5,6 +5,10 @@ library. One Cadence brain hears the bars it has played and writes the next bar,
 browser player renders the bars with its own drum machines and synth voices, and an Auto DJ mixes
 whole tracks the brain composed ahead.
 
+The radio at [cadance.floatingpragma.ai](https://cadance.floatingpragma.ai) plays such tracks from
+a static page; [running the code](docs/running.md#a-live-composer-for-the-radio-site) says how to
+connect it to a live composer of your own.
+
 - [How the brains were constructed](docs/brains.md): the bar, the layouts, the lessons, how a brain
   is read, the play settings, and what did not work.
 - [Running the code](docs/running.md): the player's pages, the files it expects, composing tracks

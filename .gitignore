@@ -25,6 +25,7 @@
 !/tools/track_summary.py
 !/tools/track_means.py
 !/tools/kick_patterns.py
+!/tools/build_radio.py
 
 # the trainer, the layouts and the readings
 /brain/*
@@ -72,6 +73,7 @@
 !/site/stats.js
 !/site/wave.js
 !/site/worklet.js
+!/site/radio.js
 !/site/index.html
 !/site/mixer.html
 !/site/curator.html

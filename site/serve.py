@@ -2595,9 +2595,44 @@ def follow_latest():
             print(f"follow latest: {e}", flush=True)
 
 
+CORS_ORIGINS = {"https://cadance.floatingpragma.ai",
+                *(o.strip().rstrip("/") for o in os.environ.get("CADANCE_CORS_ORIGINS", "").split(",") if o.strip())}
+
+
+def cors_origin(origin):
+    """The Origin a response may name in Access-Control-Allow-Origin: the radio site's (CORS_ORIGINS) or a local test
+    page's (http://localhost or http://127.0.0.1, any port); None for any other, and for a request without one."""
+    if not origin:
+        return None
+    if origin in CORS_ORIGINS or re.fullmatch(r"http://(localhost|127\.0\.0\.1)(:\d{1,5})?", origin):
+        return origin
+    return None
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
+
+    def end_headers(self):
+        # the radio site's live mode (site/radio.js) calls this server from its own origin
+        origin = cors_origin(self.headers.get("Origin"))
+        if origin:
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Vary", "Origin")
+        super().end_headers()
+
+    def do_OPTIONS(self):
+        """The preflight of a cross-origin call (the radio site's live mode); Private Network Access when asked."""
+        origin = cors_origin(self.headers.get("Origin"))
+        self.send_response(204 if origin else 403)
+        if origin:
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", self.headers.get("Access-Control-Request-Headers") or "Content-Type")
+            self.send_header("Access-Control-Max-Age", "600")
+            if (self.headers.get("Access-Control-Request-Private-Network") or "").lower() == "true":
+                self.send_header("Access-Control-Allow-Private-Network", "true")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
     def _send(self, code, body, ctype="application/json"):
         data = body if isinstance(body, bytes) else json.dumps(body).encode()
