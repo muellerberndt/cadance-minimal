@@ -786,6 +786,12 @@ def _seed_of(name, modules, heads):
         z = -0.55 + 1.1 * h / max(1, heads - 1)
         x = 0.28 if name.startswith("recall") else -0.28
         return (0.5 * x, -0.18, z) if name.endswith("_when") else (x, -0.4, z)
+    for i, inst in enumerate(("beat", "bass", "lead", "air")):      # the pathways of the instrument layouts
+        a = (i + 0.5) / 4 * 2 * np.pi
+        if name == f"{inst}_plan":
+            return (0.4 * np.cos(a), 0.25, 0.32 + 0.12 * np.sin(a))
+        if name == f"{inst}_detail":
+            return (0.45 * np.cos(a), 0.15, 0.58 + 0.12 * np.sin(a))
     if name in modules:
         k = modules.index(name)
         return (0.3 * (1 if k % 2 else -1), 0.25, -0.25 + 0.2 * k / max(1, len(modules) - 1))
@@ -810,6 +816,9 @@ def compact_brain(brain, regions, members, heads, strength, dense, index):
     share /= share.sum()
     radius = np.cbrt(share * len(V) * v ** 3 * 3 / (4 * np.pi))
     anchor = np.array([_seed_of(n, modules, heads) for n in names], float)
+    for i in range(1, R):                                      # seeds that coincide (an unknown region's default) move apart
+        while any(np.allclose(anchor[i], anchor[j]) for j in range(i)):
+            anchor[i] += 0.05 * np.array([np.cos(i * 2.4), 0.3 * np.sin(i * 1.7), np.sin(i * 2.4)])
     P = anchor.copy()
     S = np.zeros((R, R))                                       # wiring: summed |weight| both ways, the strongest pair 1
     k = min(strength.shape[0], R - 1)
@@ -821,7 +830,7 @@ def compact_brain(brain, regions, members, heads, strength, dense, index):
             S[b, -1] = S[-1, b] = 0.5
     for _ in range(300):                                       # springs between wired lobes, no overlap, the seeds hold
         d = P[:, None, :] - P[None, :, :]
-        dist = np.linalg.norm(d, axis=-1) + np.eye(R)
+        dist = np.maximum(np.linalg.norm(d, axis=-1), 1e-6) + np.eye(R)
         want = radius[:, None] + radius[None, :]
         pull = S * (dist - 0.9 * want) * 0.04
         push = np.where(dist < want, (want - dist) * 0.25, 0.0)
@@ -852,7 +861,9 @@ def compact_brain(brain, regions, members, heads, strength, dense, index):
     cap = int(brain.recall.capacity) if heads else 0
     book = _spread(_zone_points(lobes == R - 1, X, Y, Z), cap, rng).astype(np.float32) if cap else np.zeros((0, 3), np.float32)
     starts = np.concatenate([[0], np.cumsum([m[1].size for m in members])])
-    centres = np.array([pos[starts[r]:starts[r + 1]].mean(0) for r in range(R - 1)] + [book.mean(0) if cap else c[-1]])
+    # a region without drawn neurons has no mean: its lobe's centre stands in (the header is JSON, which carries no NaN)
+    centres = np.array([pos[starts[r]:starts[r + 1]].mean(0) if starts[r + 1] > starts[r] else c[r] for r in range(R - 1)]
+                       + [book.mean(0) if cap and len(book) else c[-1]])
     # the tissue: grey = neurons per voxel, white = the dense sample's bundled paths (summed |weight|)
     shape = X.shape
     def cell(p):

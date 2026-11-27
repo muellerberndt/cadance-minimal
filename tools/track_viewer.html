@@ -24,6 +24,9 @@
   #pos { flex: 1; min-width: 220px; accent-color: var(--glow); }
   #what { color: var(--glow); min-width: 22em; }
   .keys { color: var(--dim); margin-top: 6px; font-size: 12px; }
+  .brains { display: flex; flex-wrap: wrap; gap: 4px 22px; margin-top: 8px; font-size: 12px; color: var(--dim); }
+  .brains b { color: var(--ink); font-weight: 500; }
+  .brains span { cursor: pointer; }
   table { border-collapse: collapse; width: 100%; }
   th, td { padding: 5px 10px; text-align: left; white-space: nowrap; border-bottom: 1px solid rgba(74, 241, 242, .09); }
   th { position: sticky; top: var(--head, 118px); background: #000; color: var(--dim); font-weight: 400; cursor: pointer; user-select: none; z-index: 1; }
@@ -50,6 +53,7 @@
     <h1>CADANCE RADIO · TRACKS</h1>
     <span class="sum" id="sum"></span>
     <label>show <select id="filter"><option value="all">all</option><option value="unrated">not rated</option><option value="rated">rated</option><option value="veto">vetoed</option><option value="top">4 and 5 stars</option></select></label>
+    <label>brain <select id="brain"><option value="">all brains</option></select></label>
     <button id="reload" title="read the store's list again">reload</button>
     <button id="publish" title="write the store's track list with these ratings: the radio follows within a minute">publish ratings to the radio</button>
     <span id="said" role="status"></span>
@@ -62,6 +66,7 @@
     <span id="what">no track</span>
     <label><input id="auto" type="checkbox" checked> next track at the end</label>
   </div>
+  <div class="brains" id="brains"></div>
   <div class="keys">keys: ↑ ↓ choose · Enter or space play · ← → 32 bars · 1 to 5 stars · 0 back to the default of 3 · x veto. Not rated counts as 3 stars. Nothing reaches the radio until you publish.</div>
 </header>
 <main>
@@ -79,9 +84,13 @@
 </main>
 <audio id="audio" preload="none"></audio>
 <script>
-const PLAIN = { slate_inst_reads_s2_echo2q: 'deeper QUAD echo, second run', slate_inst_reads_s2_echo2: 'deeper QUAD echo',
-  slate_inst_reads_s2_echor: 'QUAD echo', slate_split_s2_echor: 'DUO echo' };
-const plain = (b) => { const k = Object.keys(PLAIN).find((p) => (b || '').startsWith(p)); return k ? PLAIN[k] : (b || '').replace(/^slate_/, '').replace(/_/g, ' '); };
+const PLAIN = [['slate_inst_reads_s2_echo2q', 'deeper QUAD echo, longer trained'], ['slate_inst_reads_s2_echo2', 'deeper QUAD echo'],
+  ['slate_inst_reads_s2_echorq', 'QUAD echo, longer trained'], ['slate_inst_reads_s2_echor', 'QUAD echo'],
+  ['slate_split_s2_echorq', 'DUO echo, longer trained'], ['slate_split_s2_echor', 'DUO echo']];
+const plain = (b) => {                                   // the run in plain words and the state, so two states of a run differ
+  const hit = PLAIN.find(([p]) => (b || '').startsWith(p)), state = ((b || '').match(/_(e\d+b\d+)$/) || [])[1];
+  return (hit ? hit[1] : (b || '').replace(/^slate_/, '').replace(/_e\d+b\d+$/, '').replace(/_/g, ' ')) + (state ? ` · ${state}` : '');
+};
 const $ = (id) => document.getElementById(id);
 const audio = $('audio');
 let tracks = [], shown = [], sel = 0, playing = null, sortKey = 'n', sortDir = 1;
@@ -103,7 +112,16 @@ async function load() {
 
 function draw() {
   const f = $('filter').value;
-  shown = tracks.filter((t) => f === 'all' || (f === 'unrated' && !t.stars && !t.veto) || (f === 'rated' && (t.stars || t.veto)) || (f === 'veto' && t.veto) || (f === 'top' && !t.veto && t.stars >= 4));
+  const only = $('brain').value;
+  const brains = [...new Set(tracks.map((t) => t.brain))].sort();
+  if ($('brain').options.length !== brains.length + 1) $('brain').innerHTML = '<option value="">all brains</option>' + brains.map((b) => `<option value="${b}">${plain(b)}</option>`).join('');
+  $('brain').value = only;
+  $('brains').innerHTML = brains.map((b) => {                // per brain: tracks, your mean of the rated ones, vetoes
+    const of = tracks.filter((t) => t.brain === b), rated = of.filter((t) => t.stars && !t.veto), veto = of.filter((t) => t.veto).length;
+    const mean = rated.length ? (rated.reduce((a, t) => a + t.stars, 0) / rated.length).toFixed(1) + ' ★' : 'not rated';
+    return `<span data-brain="${b}"><b>${plain(b)}</b>: ${of.length} tracks · ${mean}${rated.length ? ` of ${rated.length}` : ''} · ${veto} vetoed</span>`;
+  }).join('');
+  shown = tracks.filter((t) => (!only || t.brain === only) && (f === 'all' || (f === 'unrated' && !t.stars && !t.veto) || (f === 'rated' && (t.stars || t.veto)) || (f === 'veto' && t.veto) || (f === 'top' && !t.veto && t.stars >= 4)));
   shown.sort((a, b) => { const x = value(a, sortKey), y = value(b, sortKey); return (x == null) - (y == null) || (x > y ? 1 : x < y ? -1 : 0) * sortDir; });
   sel = Math.min(sel, Math.max(0, shown.length - 1));
   const rated = tracks.filter((t) => t.stars && !t.veto).length, veto = tracks.filter((t) => t.veto).length;
@@ -156,6 +174,8 @@ $('play').onclick = () => play(current() || shown[sel]);
 $('back').onclick = () => seekBars(-32);
 $('fwd').onclick = () => seekBars(32);
 $('filter').onchange = () => { sel = 0; draw(); };
+$('brain').onchange = () => { sel = 0; draw(); };
+$('brains').onclick = (e) => { const s = e.target.closest('[data-brain]'); if (s) { $('brain').value = $('brain').value === s.dataset.brain ? '' : s.dataset.brain; sel = 0; draw(); } };
 $('reload').onclick = load;
 $('publish').onclick = async () => {
   say('publishing…');

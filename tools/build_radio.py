@@ -70,6 +70,23 @@ def clean_b3d(data):
     return b"B3D1" + struct.pack("<I", len(raw)) + raw + data[8 + n:]
 
 
+def nan_positions(data):
+    """The float arrays of a packed brain that hold NaN: the views that draw from them show nothing there."""
+    import struct
+    from array import array
+    n = struct.unpack("<I", data[4:8])[0]
+    head = json.loads(re.sub(r"-?\bNaN\b|-?\bInfinity\b", "0", data[8:8 + n].decode()))
+    out = []
+    for k, (off, ln, dt) in head["arrays"].items():
+        if dt == "<f4":
+            a = array("f", data[8 + n + off:8 + n + off + ln])
+            if sys.byteorder != "little":
+                a.byteswap()
+            if any(x != x for x in a):
+                out.append(k)
+    return out
+
+
 def page(args):
     out = args.out.resolve()
     if out == ROOT or SITE in [out, *out.parents]:
@@ -87,6 +104,10 @@ def page(args):
     made = sorted((SITE / ".brain3d").glob(f"{args.brain}.v*.b3d"), key=lambda p: p.stat().st_mtime)
     if not made:
         sys.exit(f"no 3D view of {args.brain} in site/.brain3d (the player makes it the first time a page shows that brain in 3D)")
+    bad = nan_positions(made[-1].read_bytes())
+    if bad:
+        sys.exit(f"{made[-1].name} holds NaN in {bad}: the 3D views that use them draw nothing; rebuild it with the "
+                 "fixed site/brainview.py (delete the file, the player makes it again)")
     (out / "brain3d" / "brain.b3d").write_bytes(clean_b3d(made[-1].read_bytes()))
     if args.cname:
         (out / "CNAME").write_text(args.cname + "\n")
