@@ -1326,6 +1326,7 @@ export class BrainViz {
   // opts.compact: a small always-visible box (devices view): the same pictures without captions
   constructor(canvas, opts = {}) {
     this.cv = canvas; this.g = canvas.getContext('2d'); this.compact = !!opts.compact;
+    this.captions = opts.captions !== false;     // false: the pictures alone (the radio page)
     this.mode = 0; this.layout = null; this.view = null; this.arousal = null; this.checkpoint = null;
     this.regions = new Map();          // name -> {disp, target, mean, dmean, max}
     this.heads = [[], [], [], []];     // displayed reads per head: [{age, w, dw}]
@@ -1529,7 +1530,7 @@ export class BrainViz {
       const cap = DEMO[MODES[this.mode]](X, S, g);
       if (MODES[this.mode] !== 'acid') X.blit(g, W, H);
       this.feedbackFlash(ctx);
-      if (!this.compact) demoCaption(g, W, H, D, cap + (S.brain ? '' : ' · no brain loaded: driven by the audio and the steps'));
+      if (!this.compact && this.captions) demoCaption(g, W, H, D, cap + (S.brain ? '' : ' · no brain loaded: driven by the audio and the steps'));
       return;
     }
     if (!this.view || !this.layout) return this.idle(ctx);
@@ -1839,7 +1840,7 @@ export class BrainViz {
     return (this.layout.apical || []).map((p, i) => ({ ...p, g: this.apical[i] != null ? this.apical[i] / this.apMax : 0 }));
   }
   caption(ctx, text) {
-    if (this.compact) return;
+    if (this.compact || !this.captions) return;
     const { g, D, H, W } = ctx;
     g.font = `${9 * D}px ui-monospace, Menlo, monospace`; g.fillStyle = 'rgba(75,82,91,.9)'; g.textAlign = 'left'; g.textBaseline = 'alphabetic';
     const lines = [];

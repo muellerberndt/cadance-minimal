@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Cadance Radio | Pragma Research</title>
+<meta name="description" content="Cadance Radio: techno tracks composed by Cadance brains, mixed live in your browser by an Auto DJ, with the brain's activity in view.">
+<meta name="theme-color" content="#000000">
+<meta name="color-scheme" content="dark">
+<link rel="canonical" href="https://cadance.floatingpragma.ai/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Pragma Research">
+<meta property="og:title" content="Cadance Radio">
+<meta property="og:description" content="Tracks composed by Cadance brains, mixed live in your browser by an Auto DJ.">
+<meta property="og:url" content="https://cadance.floatingpragma.ai/">
+<meta property="og:image" content="https://floatingpragma.ai/assets/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The Pragma Research caret glowing on black.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://floatingpragma.ai/assets/og.png">
+<link rel="icon" href="favicon.svg" type="image/svg+xml" sizes="any">
+<!-- Google tags, as on floatingpragma.ai. Consent defaults come first; EEA, UK and CH start denied until the visitor chooses. -->
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('consent', 'default', { ad_storage: 'granted', ad_user_data: 'granted', ad_personalization: 'granted', analytics_storage: 'granted' });
+  gtag('consent', 'default', { ad_storage: 'denied', ad_user_data: 'denied', ad_personalization: 'denied', analytics_storage: 'denied', wait_for_update: 500, region: ['AT', 'BE', 'BG', 'HR', 'CY', 'CZ', 'DK', 'EE', 'FI', 'FR', 'DE', 'GR', 'HU', 'IE', 'IT', 'LV', 'LT', 'LU', 'MT', 'NL', 'PL', 'PT', 'RO', 'SK', 'SI', 'ES', 'SE', 'IS', 'LI', 'NO', 'GB', 'CH'] });
+  try {
+    var fpc = localStorage.getItem('fp_consent');
+    if (fpc) { var g = fpc === 'granted' ? 'granted' : 'denied'; gtag('consent', 'update', { ad_storage: g, ad_user_data: g, ad_personalization: g, analytics_storage: g }); }
+  } catch (e) {}
+  gtag('js', new Date());
+  gtag('config', 'G-HLGH209WMG', { cookie_domain: 'floatingpragma.ai' });
+</script>
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-HLGH209WMG"></script>
+<script src="assets/consent.js" defer></script>
+<link rel="stylesheet" href="radio.css">
+</head>
+<body>
+<main id="stage">
+  <canvas id="viz" aria-label="the visuals"></canvas>
+  <canvas id="inst" hidden aria-label="the instruments: how the brain plays the bar that sounds"></canvas>
+  <div class="scan" aria-hidden="true"></div>
+
+  <header class="brand">
+    <a class="mark" href="https://floatingpragma.ai/" aria-label="Pragma Research">
+      <svg class="base" viewBox="-1 -1 17 16" aria-hidden="true"><use href="#caret"/></svg>
+    </a>
+    <div class="names">
+      <div class="word">CADANCE RADIO</div>
+      <a class="by" href="https://floatingpragma.ai/">Pragma Research</a>
+    </div>
+  </header>
+
+  <div id="bigPlay"><button id="bigPlayB" aria-label="play the radio"><span class="tri" aria-hidden="true"></span><span class="lab">play the radio</span></button></div>
+
+  <footer id="bar">
+    <div class="controls">
+      <button id="playB" class="ic" aria-label="play" title="play / pause (space)">&#9654;</button>
+      <button id="nextB" class="ic" aria-label="next track" title="next track (n)">&#9197;</button>
+      <label class="vol" title="volume"><span aria-hidden="true">vol</span><input id="volume" type="range" min="0" max="1" step="0.01" aria-label="volume"></label>
+      <select id="modeSel" aria-label="visual mode" title="visual mode (m: next)"></select>
+      <button id="fullB" class="ic" aria-label="full screen" title="full screen (f)">&#9974;</button>
+      <button id="gearB" class="ic" aria-label="settings" title="settings: a live brain">&#9881;</button>
+      <button id="helpB" class="ic" aria-label="show the tutorial" title="the tutorial">?</button>
+    </div>
+    <div class="readout"><span id="status" aria-live="polite"></span><span id="nowPlaying"></span></div>
+    <nav class="links" aria-label="links">
+      <a href="https://github.com/muellerberndt/cadance-minimal" target="_blank" rel="noopener">docs and source</a>
+      <a href="https://github.com/muellerberndt/cadence/blob/main/docs/tutorials/minimal-techno.md" target="_blank" rel="noopener">tutorial</a>
+      <a href="https://github.com/muellerberndt/cadence" target="_blank" rel="noopener">cadence</a>
+      <a href="https://floatingpragma.ai/" target="_blank" rel="noopener">pragma research</a>
+    </nav>
+  </footer>
+
+  <section id="settings" class="panel" hidden aria-label="settings">
+    <h2>settings</h2>
+    <label for="apiUrl">Live brain (server URL)</label>
+    <input id="apiUrl" type="url" spellcheck="false" autocomplete="off" placeholder="empty: the radio plays the stored tracks">
+    <p class="help">A server that hosts the Cadance neural network composes live; this page connects to it. <a href="https://github.com/muellerberndt/cadance-minimal/blob/main/docs/running.md#a-live-composer-for-the-radio-site" target="_blank" rel="noopener">How to run one</a></p>
+    <p id="apiState" class="state"></p>
+    <div class="row"><button id="apiSave">save</button><button id="apiClose">close</button></div>
+  </section>
+
+  <section id="tour" class="panel tour" hidden aria-live="polite" aria-label="tutorial">
+    <p class="step"></p>
+    <div class="body"></div>
+    <div class="row"><button id="tourBack">back</button><button id="tourNext">next</button><button id="tourClose">close</button></div>
+  </section>
+  <div id="ring" hidden aria-hidden="true"></div>
+</main>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <g id="caret" fill="currentColor" shape-rendering="crispEdges">
+      <rect x="6" y="0" width="3" height="2"/>
+      <rect x="5" y="2" width="5" height="2"/>
+      <rect x="4" y="4" width="3" height="2"/><rect x="8" y="4" width="3" height="2"/>
+      <rect x="3" y="6" width="3" height="2"/><rect x="9" y="6" width="3" height="2"/>
+      <rect x="2" y="8" width="3" height="2"/><rect x="10" y="8" width="3" height="2"/>
+      <rect x="1" y="10" width="3" height="2"/><rect x="11" y="10" width="3" height="2"/>
+      <rect x="0" y="12" width="3" height="2"/><rect x="12" y="12" width="3" height="2"/>
+    </g>
+  </defs>
+</svg>
+<script src="radio.js"></script>
+<script type="module" src="radio-app.js"></script>
+</body>
+</html>
