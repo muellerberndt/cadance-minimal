@@ -20,6 +20,9 @@
 // 32-bar section and becomes the primary; the old track stays beside it for another section and then leaves.
 // Effects are used on the decks beside the primary only, on about half of them.
 //
+// The radio (radio-app.js) gives the planner a blend of its own (Planner's `blend`): the set keeps moving, a track
+// lives about 128 to 160 bars and two tracks sound together most of the time.
+//
 // The Planner is plain logic (bars in, lanes and commands out) and is tested without audio (test_autodj.mjs).
 export const SECTION = 32;
 // knob positions of a deck that plays in full (the mixer's laws: fader 0.8 = 0 dB, EQ 0.5 = flat, 0 = kill)
@@ -82,8 +85,8 @@ export const TRANSITIONS = {
   // primary for 32 bars, without its bass, and leaves over the 32 after that. Both tracks' patterns are heard
   // together for 64 to 96 bars.
   // the new track's highs first, then its body, then the bass
-  tops(r) {
-    const swap = pick(r, [64, 64, 96]), len = swap + 64, body = sway(r, 0.42, 0.02);
+  tops(r, swaps = [64, 64, 96]) {
+    const swap = pick(r, swaps), len = swap + 64, body = sway(r, 0.42, 0.02);
     return { name: 'highs first', swap, len,
       in: { fader: [[0, 0], [16, sway(r, 0.6)], [32, 0.74], [swap, 0.78], [swap, 0.8]], hp: [[0, 1], [16, 1], [32, body], [swap, body], [swap, 0]], lo: [[0, 0], [swap, 0], [swap, 0.5]] },
       out: { lo: [[swap, 0.5], [swap, 0]], fader: [[swap, 0.8], [swap + 8, 0.74], [swap + 32, 0.74], [len, 0]], lp: [[swap + 32, 1], [len, sway(r, 0.32)]] },
@@ -91,8 +94,8 @@ export const TRANSITIONS = {
       fxOut: pick(r, [0, 1, 2]) ? { type: pick(r, ['vanish', 'sink']), keep: true, lane: [[swap + 32, 0], [len - 4, sway(r, 0.85, 0.05)], [len, 0.95]] } : { type: pick(r, ['reverb', 'phaser', 'crush']), lane: [[swap + 32, 0], [swap + 48, sway(r, 0.34)], [len, 0.4]] } };
   },
   // the new track through a lowpass that opens: its warmth first
-  lowpass(r) {
-    const swap = pick(r, [64, 64, 96]), len = swap + 64;
+  lowpass(r, swaps = [64, 64, 96]) {
+    const swap = pick(r, swaps), len = swap + 64;
     return { name: 'opening lowpass', swap, len,
       in: { fader: [[0, 0], [12, sway(r, 0.62)], [32, 0.76], [swap, 0.8]], lp: [[0, sway(r, 0.22)], [8, 0.24], [32, 1]], lo: [[0, 0], [swap, 0], [swap, 0.5]] },
       out: { lo: [[swap, 0.5], [swap, 0]], fader: [[swap, 0.8], [swap + 8, 0.74], [swap + 32, 0.72], [len, 0]], hp: [[swap + 24, 0], [len, sway(r, 0.7)]] },
@@ -100,8 +103,8 @@ export const TRANSITIONS = {
       fxOut: pick(r, [0, 1]) ? { type: 'vanish', keep: true, lane: [[swap + 32, 0], [len - 4, sway(r, 0.85, 0.05)], [len, 0.95]] } : { type: pick(r, ['gater', 'roll', 'sweep']), lane: [[swap + 32, 0], [swap + 44, sway(r, 0.34)], [len, 0.38]] } };
   },
   // the new track's mids under the primary, then its highs, then the bass
-  mids(r) {
-    const swap = pick(r, [64, 96]), len = swap + 64;
+  mids(r, swaps = [64, 96]) {
+    const swap = pick(r, swaps), len = swap + 64;
     return { name: 'mids under', swap, len,
       in: { fader: [[0, 0], [16, sway(r, 0.68)], [40, 0.76], [swap, 0.8]], hp: [[0, 0.5], [swap, 0.5], [swap, 0]], lp: [[0, sway(r, 0.5)], [16, 0.5], [40, 1]],
             hi: [[0, 0.15], [16, 0.15], [40, 0.5]], lo: [[0, 0], [swap, 0], [swap, 0.5]] },
@@ -111,8 +114,8 @@ export const TRANSITIONS = {
   },
   // the three bands change decks one after the other, each on its own line: the highs, then the mids, then the bass;
   // the old track then dissolves through vanish or sink
-  swap3(r) {
-    const swap = pick(r, [64, 96]), len = swap + 48, a = swap - 32, b = swap - 16;
+  swap3(r, swaps = [64, 96]) {
+    const swap = pick(r, swaps), len = swap + 48, a = swap - 32, b = swap - 16;
     return { name: 'three-band swap', swap, len,
       in: { fader: [[0, 0], [16, sway(r, 0.66)], [a, 0.78], [swap, 0.8]], hi: [[0, 0.12], [a, 0.12], [a, 0.5]], mid: [[0, 0.15], [b, 0.15], [b, 0.5]], lo: [[0, 0], [swap, 0], [swap, 0.5]] },
       out: { hi: [[a, 0.5], [a, 0.12]], mid: [[b, 0.5], [b, 0.15]], lo: [[swap, 0.5], [swap, 0]], fader: [[swap, 0.8], [len - 8, 0.76], [len, 0]] },
@@ -140,11 +143,19 @@ export const TRANSITIONS = {
   },
 };
 const ODDS = [['tops', 4], ['lowpass', 3], ['mids', 3], ['swap3', 3], ['bass', 0.6], ['drop', 1]];       // mostly the long blends
-function draw(r) {
+function draw(r, swaps) {        // swaps: the long blends' choices of the bass swap (undefined: their own)
   const total = ODDS.reduce((s, [, w]) => s + w, 0);
   let x = r() * total;
-  for (const [name, w] of ODDS) { x -= w; if (x <= 0) return TRANSITIONS[name](r); }
-  return TRANSITIONS.tops(r);
+  for (const [name, w] of ODDS) { x -= w; if (x <= 0) return TRANSITIONS[name](r, swaps); }
+  return TRANSITIONS.tops(r, swaps);
+}
+// the same transition f times as long: every point, the swap and the end (f * swap stays on a section line)
+export function squeeze(t, f) {
+  const lanes = (o) => Object.fromEntries(Object.entries(o).map(([key, pts]) => [key, pts.map(([x, v]) => [x * f, v])]));
+  const out = { ...t, in: lanes(t.in), out: lanes(t.out), swap: t.swap * f, len: t.len * f };
+  if (t.fxIn) out.fxIn = { ...t.fxIn, lane: t.fxIn.lane.map(([x, v]) => [x * f, v]) };
+  if (t.fxOut) out.fxOut = { ...t.fxOut, lane: t.fxOut.lane.map(([x, v]) => [x * f, v]) };
+  return out;
 }
 // the same transition with its bass swap and everything after it d bars (32-bar units) later
 function delayed(t, d) {
@@ -193,8 +204,13 @@ export class Transitions {
 
 // ---------- the planner ----------
 export class Planner {
-  constructor({ rand = Math.random, section = SECTION, decks = 3 } = {}) {
-    this.r = rand; this.sec = section; this.k = section / SECTION; this.n = decks; this.cutOdds = 0.3;
+  // blend (the radio; null: the mixer's set): { swaps, swapAt, solo }. A long blend is drawn with its bass swap from
+  // `swaps` and squeezed so the bass changes decks `swapAt` bars after the new track's start (64 -> 32: the blend
+  // takes 64 bars, the old track leaves 32 bars after the swap); `solo`: the sections from the swap to the next
+  // track's start (1: it starts as the old one leaves, 2: the primary plays alone for one section); no third deck
+  // lingers. A track then lives 96 + 32 * solo bars: 128 or 160.
+  constructor({ rand = Math.random, section = SECTION, decks = 3, blend = null } = {}) {
+    this.r = rand; this.sec = section; this.k = section / SECTION; this.n = decks; this.cutOdds = 0.3; this.blend = blend;
     this.doubleOdds = 0.2; this.doubleBass = []; this.rideOdds = 0.3;
     this.lanes = Array.from({ length: decks }, () => ({}));
     this.role = Array(decks).fill('idle');          // idle | primary | in | out
@@ -224,6 +240,7 @@ export class Planner {
   }
   // after a track became the primary: how long it plays alone and how the next one will come in
   plan(from, sections) {
+    if (this.blend) return this.planBlend(from, sections);
     const t = this.upcoming = linger(this.r, draw(this.r));
     this.nextStart = from + sections * this.sec;
     // how long the next track will play alone: two to four sections, rarely one after a long tail (three decks overlap)
@@ -231,6 +248,14 @@ export class Planner {
     // primary plays alone in between; one section (rare, after a long tail) lets three decks overlap
     t.solo = t.len - t.swap > 64 ? pick(this.r, [1, 2, 3]) : pick(this.r, [2, 2, 2, 3]);       // mostly the next track enters as the old one has left
     this.waited = 0;
+    return this.life(t);
+  }
+  planBlend(from, sections) {
+    const b = this.blend;
+    let t = draw(this.r, b.swaps);
+    if (t.swap > b.swapAt) t = squeeze(t, b.swapAt / t.swap);
+    t.solo = t.len - t.swap >= 32 ? pick(this.r, b.solo) : 1;      // a short tail (the drop): the next one comes a section later
+    this.upcoming = t; this.nextStart = from + sections * this.sec; this.waited = 0;
     return this.life(t);
   }
   // the bars a track needs: coming in, alone, and going out (three sections; a longer tail repeats its last section)
@@ -410,8 +435,8 @@ class Track {
 
 export class AutoDJ {
   // desk: { chans, ctx(), ensureAudio(), bpm(), userBpm(), setBpm(v), status(text), paint(), brainName() }
-  constructor(desk, { rand = Math.random, section = SECTION } = {}) {
-    this.desk = desk; this.rand = rand; this.section = section; this.on = false; this.planner = null; this.clock = null;
+  constructor(desk, { rand = Math.random, section = SECTION, blend = null } = {}) {
+    this.desk = desk; this.rand = rand; this.section = section; this.blend = blend; this.on = false; this.planner = null; this.clock = null;
     this.tracks = []; this.deckTrack = [null, null, null]; this.scheduledTo = 0; this.last = {}; this.model = 'leader';
     this.live = null; this.shelf = null; this.bridge = null;    // the next live track, a stand-in of the brain, a transition piece: not on a deck yet
     this.order = new Transitions();
@@ -606,7 +631,7 @@ export class AutoDJ {
     this.clock = { G, t, len };
     if (this.armed) {                                    // the set starts on the next bar line
       this.armed = false;
-      this.planner = new Planner({ rand: this.rand, section: this.section });
+      this.planner = new Planner({ rand: this.rand, section: this.section, blend: this.blend });
       this.planner.bassShare = (a, b) => this.bassShare(a, b);
       this.planner.newBassShare = (S, a, b) => this.newBassShare(S, a, b);
       this.planner.begin(G + 1);
