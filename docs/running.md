@@ -114,6 +114,15 @@ active".
 Live composing is a different mode: a brain writes the next bar while you listen. That needs a
 server.
 
+## Rating the radio's tracks
+
+`python tools/track_viewer.py` opens a list of the store's tracks on your own computer
+(http://127.0.0.1:8795/): listen, jump by 32 bars, give 1 to 5 stars or a veto. A track nobody
+rated counts as 3 stars. The ratings stay in a file on that computer until "publish" writes the
+store's `tracks.json` again: vetoed tracks leave the list, and the others carry `stars` and a
+`weight` for the radio's random pick. Publishing uses the AWS command line of the computer, so
+only someone who may write the store can change what the radio plays.
+
 ## A live composer for the radio site
 
 A live composer is this repository's player server with a brain loaded. The radio page talks to it

@@ -26,6 +26,8 @@
 !/tools/track_means.py
 !/tools/kick_patterns.py
 !/tools/build_radio.py
+!/tools/track_viewer.py
+!/tools/track_viewer.html
 !/tools/render_radio.py
 
 # the trainer, the layouts and the readings

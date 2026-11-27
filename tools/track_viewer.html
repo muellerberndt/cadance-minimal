@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cadance Radio · tracks</title>
+<style>
+  :root { --bg: #000; --glow: #4af1f2; --glow-soft: rgba(74, 241, 242, .55); --ink: #c9fbfb; --dim: rgba(74, 241, 242, .62);
+          --faint: rgba(74, 241, 242, .22); --red: #ff2a6d; --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.5 var(--mono); }
+  header { position: sticky; top: 0; z-index: 2; background: #000; border-bottom: 1px solid var(--faint); padding: 10px 16px 8px; }
+  .top { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; }
+  .mark { width: 26px; color: var(--glow); filter: drop-shadow(0 0 3px var(--glow)) drop-shadow(0 0 10px var(--glow-soft)); }
+  h1 { font-size: 13px; font-weight: 500; letter-spacing: .3em; margin: 0; }
+  .sum { color: var(--dim); }
+  button, select { font: inherit; color: var(--ink); background: #000; border: 1px solid var(--faint); border-radius: 3px; padding: 3px 10px; cursor: pointer; }
+  button:hover, select:hover { border-color: var(--glow); }
+  button:focus-visible, select:focus-visible, input:focus-visible { outline: 1px dashed var(--glow); outline-offset: 3px; }
+  #publish { border-color: var(--glow); color: var(--glow); }
+  #said { color: var(--dim); min-height: 1.5em; }
+  #said.bad { color: var(--red); }
+  .player { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 8px; }
+  #pos { flex: 1; min-width: 220px; accent-color: var(--glow); }
+  #what { color: var(--glow); min-width: 22em; }
+  .keys { color: var(--dim); margin-top: 6px; font-size: 12px; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { padding: 5px 10px; text-align: left; white-space: nowrap; border-bottom: 1px solid rgba(74, 241, 242, .09); }
+  th { position: sticky; top: var(--head, 118px); background: #000; color: var(--dim); font-weight: 400; cursor: pointer; user-select: none; z-index: 1; }
+  th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  tr.row { cursor: pointer; }
+  tr.row:hover td { background: rgba(74, 241, 242, .05); }
+  tr.sel td { background: rgba(74, 241, 242, .11); }
+  tr.playing td:first-child { color: var(--glow); text-shadow: 0 0 8px var(--glow-soft); }
+  tr.veto td { color: rgba(201, 251, 251, .32); text-decoration: line-through; }
+  tr.veto td.act, tr.veto td.stars { text-decoration: none; }
+  .stars span { cursor: pointer; padding: 0 1px; color: var(--faint); font-size: 15px; }
+  .stars span.on { color: var(--glow); text-shadow: 0 0 6px var(--glow-soft); }
+  .stars span.def { color: rgba(74, 241, 242, .45); }
+  .vetoB { border-color: rgba(255, 42, 109, .5); color: var(--red); padding: 1px 8px; }
+  tr.veto .vetoB { background: var(--red); color: #000; }
+  .warn { color: #ffb347; }
+  main { padding: 0 6px 60px; }
+</style>
+</head>
+<body>
+<header id="head">
+  <div class="top">
+    <svg class="mark" viewBox="-1 -1 17 16" aria-hidden="true"><g fill="currentColor" shape-rendering="crispEdges"><rect x="6" y="0" width="3" height="2"/><rect x="5" y="2" width="5" height="2"/><rect x="4" y="4" width="3" height="2"/><rect x="8" y="4" width="3" height="2"/><rect x="3" y="6" width="3" height="2"/><rect x="9" y="6" width="3" height="2"/><rect x="2" y="8" width="3" height="2"/><rect x="10" y="8" width="3" height="2"/><rect x="1" y="10" width="3" height="2"/><rect x="11" y="10" width="3" height="2"/><rect x="0" y="12" width="3" height="2"/><rect x="12" y="12" width="3" height="2"/></g></svg>
+    <h1>CADANCE RADIO · TRACKS</h1>
+    <span class="sum" id="sum"></span>
+    <label>show <select id="filter"><option value="all">all</option><option value="unrated">not rated</option><option value="rated">rated</option><option value="veto">vetoed</option><option value="top">4 and 5 stars</option></select></label>
+    <button id="reload" title="read the store's list again">reload</button>
+    <button id="publish" title="write the store's track list with these ratings: the radio follows within a minute">publish ratings to the radio</button>
+    <span id="said" role="status"></span>
+  </div>
+  <div class="player">
+    <button id="play" aria-label="play or pause">▶</button>
+    <button id="back" title="32 bars back">« 32</button>
+    <button id="fwd" title="32 bars on">32 »</button>
+    <input id="pos" type="range" min="0" max="1000" value="0" aria-label="position in the track">
+    <span id="what">no track</span>
+    <label><input id="auto" type="checkbox" checked> next track at the end</label>
+  </div>
+  <div class="keys">keys: ↑ ↓ choose · Enter or space play · ← → 32 bars · 1 to 5 stars · 0 back to the default of 3 · x veto. Not rated counts as 3 stars. Nothing reaches the radio until you publish.</div>
+</header>
+<main>
+  <table>
+    <thead><tr>
+      <th data-k="n" class="num">#</th><th data-k="brain">brain</th><th data-k="seconds" class="num">length</th>
+      <th data-k="kick" class="num" title="kick hits per bar, whole track">kick</th><th data-k="snare" class="num">snare</th><th data-k="hats" class="num">hats</th>
+      <th data-k="bass" class="num" title="bass notes per bar">bass</th><th data-k="lead" class="num">lead</th>
+      <th data-k="drums_equal_previous" class="num" title="share of bars whose drums equal the bar before">repeats</th>
+      <th data-k="held" class="num" title="longest held bass / lead bar">held</th>
+      <th data-k="stars">stars</th><th>veto</th><th data-k="id">id</th>
+    </tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+</main>
+<audio id="audio" preload="none"></audio>
+<script>
+const PLAIN = { slate_inst_reads_s2_echo2q: 'deeper QUAD echo, second run', slate_inst_reads_s2_echo2: 'deeper QUAD echo',
+  slate_inst_reads_s2_echor: 'QUAD echo', slate_split_s2_echor: 'DUO echo' };
+const plain = (b) => { const k = Object.keys(PLAIN).find((p) => (b || '').startsWith(p)); return k ? PLAIN[k] : (b || '').replace(/^slate_/, '').replace(/_/g, ' '); };
+const $ = (id) => document.getElementById(id);
+const audio = $('audio');
+let tracks = [], shown = [], sel = 0, playing = null, sortKey = 'n', sortDir = 1;
+const say = (text, bad) => { $('said').textContent = text; $('said').className = bad ? 'bad' : ''; };
+const post = async (path, body) => { const r = await fetch(path, { method: 'POST', body: JSON.stringify(body || {}) }); const j = await r.json(); if (!r.ok || j.error) throw new Error(j.error || r.statusText); return j; };
+const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+const value = (t, k) => k === 'held' ? Math.max(t.counts.held_bass || 0, t.counts.held_lead || 0) : k === 'stars' ? (t.veto ? -1 : (t.stars || 3))
+  : k in t ? t[k] : t.counts[k];
+
+async function load() {
+  try {
+    const j = await (await fetch('/api/tracks')).json();
+    if (j.error) throw new Error(j.error);
+    tracks = j.tracks;
+    draw();
+    say(`${tracks.length} tracks read from the store`);
+  } catch (e) { say(`the list could not be read: ${e.message}`, true); }
+}
+
+function draw() {
+  const f = $('filter').value;
+  shown = tracks.filter((t) => f === 'all' || (f === 'unrated' && !t.stars && !t.veto) || (f === 'rated' && (t.stars || t.veto)) || (f === 'veto' && t.veto) || (f === 'top' && !t.veto && t.stars >= 4));
+  shown.sort((a, b) => { const x = value(a, sortKey), y = value(b, sortKey); return (x == null) - (y == null) || (x > y ? 1 : x < y ? -1 : 0) * sortDir; });
+  sel = Math.min(sel, Math.max(0, shown.length - 1));
+  const rated = tracks.filter((t) => t.stars && !t.veto).length, veto = tracks.filter((t) => t.veto).length;
+  $('sum').textContent = `${tracks.length} tracks · ${rated} rated · ${veto} vetoed · ${tracks.length - rated - veto} at the default of 3 stars`;
+  const num = (v, d = 1) => v == null ? '' : (+v).toFixed(d);
+  $('rows').innerHTML = shown.map((t, i) => {
+    const c = t.counts, s = t.stars || 3;
+    const stars = [1, 2, 3, 4, 5].map((n) => `<span data-star="${n}" class="${n <= s ? (t.stars ? 'on' : 'def') : ''}">★</span>`).join('');
+    const held = c.held_bass == null ? '' : `${c.held_bass | 0} / ${c.held_lead | 0}`;
+    return `<tr class="row${i === sel ? ' sel' : ''}${t.veto ? ' veto' : ''}${playing === t.id ? ' playing' : ''}" data-i="${i}">
+      <td class="num">${t.n == null ? '–' : t.n}</td><td>${plain(t.brain)}</td><td class="num">${mmss(t.seconds || 0)}</td>
+      <td class="num">${num(c.kick)}</td><td class="num">${num(c.snare)}</td><td class="num${c.hats != null && c.hats < 3 ? ' warn' : ''}">${num(c.hats)}</td>
+      <td class="num">${num(c.bass)}</td><td class="num">${num(c.lead)}</td>
+      <td class="num${c.drums_equal_previous > 0.5 ? ' warn' : ''}">${c.drums_equal_previous == null ? '' : Math.round(c.drums_equal_previous * 100) + '%'}</td>
+      <td class="num">${held}</td><td class="stars">${stars}</td>
+      <td class="act"><button class="vetoB" data-veto="1">${t.veto ? 'vetoed' : 'veto'}</button></td><td>${t.id}</td></tr>`;
+  }).join('');
+}
+
+async function rate(t, change) {
+  try {
+    const j = await post('/api/rate', { id: t.id, ...change });
+    t.stars = j.rating.stars || null; t.veto = !!j.rating.veto;
+    draw();
+    say(t.veto ? `track ${t.n ?? t.id}: vetoed (not published yet)` : `track ${t.n ?? t.id}: ${t.stars || 3} stars${t.stars ? '' : ' (the default)'} (not published yet)`);
+  } catch (e) { say(`not saved: ${e.message}`, true); }
+}
+
+function play(t, toggle = true) {
+  if (!t) return;
+  if (playing === t.id && toggle) { if (audio.paused) audio.play(); else audio.pause(); return; }
+  playing = t.id; audio.src = t.url; audio.play().catch((e) => say(`the track does not play: ${e.message}`, true));
+  draw();
+}
+const current = () => tracks.find((t) => t.id === playing);
+const seekBars = (bars) => { const t = current(); if (!t) return; audio.currentTime = Math.max(0, Math.min((audio.duration || t.seconds) - 1, audio.currentTime + bars * 240 / (t.bpm || 140))); };
+
+audio.addEventListener('timeupdate', () => {
+  const t = current(); if (!t) return;
+  const d = audio.duration || t.seconds || 1, bar = Math.floor(audio.currentTime / (240 / (t.bpm || 140))) + 1;
+  $('pos').value = Math.round(1000 * audio.currentTime / d);
+  $('what').textContent = `track ${t.n ?? t.id} · ${plain(t.brain)} · bar ${bar} of ${t.bars} · ${mmss(audio.currentTime)} / ${mmss(d)}`;
+});
+audio.addEventListener('play', () => { $('play').textContent = '❚❚'; });
+audio.addEventListener('pause', () => { $('play').textContent = '▶'; });
+audio.addEventListener('ended', () => { if (!$('auto').checked) return; const i = shown.findIndex((t) => t.id === playing); if (i >= 0 && shown[i + 1]) { sel = i + 1; play(shown[sel], false); } });
+audio.addEventListener('error', () => say('the track could not be loaded from the store', true));
+$('pos').addEventListener('input', () => { const t = current(); if (t) audio.currentTime = ($('pos').value / 1000) * (audio.duration || t.seconds); });
+$('play').onclick = () => play(current() || shown[sel]);
+$('back').onclick = () => seekBars(-32);
+$('fwd').onclick = () => seekBars(32);
+$('filter').onchange = () => { sel = 0; draw(); };
+$('reload').onclick = load;
+$('publish').onclick = async () => {
+  say('publishing…');
+  try { const j = await post('/api/publish'); say(`published: ${j.published} tracks on the radio, ${j.vetoed} vetoed and out`); await load(); }
+  catch (e) { say(`not published: ${e.message}`, true); }
+};
+document.querySelector('thead').onclick = (e) => { const k = e.target.dataset.k; if (!k) return; sortDir = sortKey === k ? -sortDir : 1; sortKey = k; draw(); };
+$('rows').onclick = (e) => {
+  const row = e.target.closest('tr.row'); if (!row) return;
+  sel = +row.dataset.i; const t = shown[sel];
+  if (e.target.dataset.star) return rate(t, { stars: +e.target.dataset.star === t.stars ? null : +e.target.dataset.star });
+  if (e.target.dataset.veto) return rate(t, { veto: !t.veto });
+  play(t);
+};
+addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT' && e.target.type !== 'range' && e.target.type !== 'checkbox' || e.target.tagName === 'SELECT' || e.metaKey || e.ctrlKey || e.altKey) return;
+  const t = shown[sel];
+  if (e.key === 'ArrowDown' || e.key === 'j') { sel = Math.min(shown.length - 1, sel + 1); draw(); }
+  else if (e.key === 'ArrowUp' || e.key === 'k') { sel = Math.max(0, sel - 1); draw(); }
+  else if (e.key === 'Enter' || e.key === ' ') play(t);
+  else if (e.key === 'ArrowLeft') seekBars(-32);
+  else if (e.key === 'ArrowRight') seekBars(32);
+  else if (t && '12345'.includes(e.key)) rate(t, { stars: +e.key });
+  else if (t && e.key === '0') rate(t, { stars: null });
+  else if (t && e.key === 'x') rate(t, { veto: !t.veto });
+  else return;
+  e.preventDefault();
+  const row = document.querySelector('tr.sel'); if (row) row.scrollIntoView({ block: 'nearest' });
+});
+new ResizeObserver(() => document.documentElement.style.setProperty('--head', $('head').offsetHeight + 'px')).observe($('head'));
+load();
+</script>
+</body>
+</html>
