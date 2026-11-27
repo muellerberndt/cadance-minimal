@@ -91,7 +91,7 @@ button, select, input { font: inherit; color: var(--ink); }
 .consent .links a { color: var(--glow); }
 
 @media (max-width: 640px) {
-  .links { width: 100%; }
+  .links { width: 100%; flex-wrap: wrap; row-gap: 6px; }
   .controls { flex-wrap: wrap; }
   .vol input { width: 64px; }
 }
