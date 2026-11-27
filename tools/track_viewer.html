@@ -77,6 +77,7 @@
       <th data-k="bass" class="num" title="bass notes per bar">bass</th><th data-k="lead" class="num">lead</th>
       <th data-k="drums_equal_previous" class="num" title="share of bars whose drums equal the bar before">repeats</th>
       <th data-k="held" class="num" title="longest held bass / lead bar">held</th>
+      <th data-k="four_quarters" class="num" title="share of bars whose kick has all four quarters">4/4</th>
       <th data-k="stars">stars</th><th>veto</th><th data-k="id">id</th>
     </tr></thead>
     <tbody id="rows"></tbody>
@@ -136,7 +137,7 @@ function draw() {
       <td class="num">${num(c.kick)}</td><td class="num">${num(c.snare)}</td><td class="num${c.hats != null && c.hats < 3 ? ' warn' : ''}">${num(c.hats)}</td>
       <td class="num">${num(c.bass)}</td><td class="num">${num(c.lead)}</td>
       <td class="num${c.drums_equal_previous > 0.5 ? ' warn' : ''}">${c.drums_equal_previous == null ? '' : Math.round(c.drums_equal_previous * 100) + '%'}</td>
-      <td class="num">${held}</td><td class="stars">${stars}</td>
+      <td class="num">${held}</td><td class="num">${c.four_quarters == null ? '' : Math.round(c.four_quarters * 100) + '%'}</td><td class="stars">${stars}</td>
       <td class="act"><button class="vetoB" data-veto="1">${t.veto ? 'vetoed' : 'veto'}</button></td><td>${t.id}</td></tr>`;
   }).join('');
 }
