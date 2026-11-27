@@ -55,7 +55,7 @@
     <label>show <select id="filter"><option value="all">all</option><option value="unrated">not rated</option><option value="rated">rated</option><option value="veto">vetoed</option><option value="top">4 and 5 stars</option></select></label>
     <label>brain <select id="brain"><option value="">all brains</option></select></label>
     <button id="reload" title="read the store's list again">reload</button>
-    <button id="publish" title="write the store's track list with these ratings: the radio follows within a minute">publish ratings to the radio</button>
+    <button id="publish" title="write the store's track list with these ratings at once; it also happens by itself after your last change">publish now</button>
     <span id="said" role="status"></span>
   </div>
   <div class="player">
@@ -67,7 +67,7 @@
     <label><input id="auto" type="checkbox" checked> next track at the end</label>
   </div>
   <div class="brains" id="brains"></div>
-  <div class="keys">keys: ↑ ↓ choose · Enter or space play · ← → 32 bars · 1 to 5 stars · 0 back to the default of 3 · x veto. Not rated counts as 3 stars. Nothing reaches the radio until you publish.</div>
+  <div class="keys">keys: ↑ ↓ choose · Enter or space play · ← → 32 bars · 1 to 5 stars · 0 back to the default of 3 · x veto. Not rated counts as 3 stars. Your ratings go to the radio by themselves, about 15 seconds after your last change. <span id="live"></span></div>
 </header>
 <main>
   <table>
@@ -147,7 +147,8 @@ async function rate(t, change) {
     const j = await post('/api/rate', { id: t.id, ...change });
     t.stars = j.rating.stars || null; t.veto = !!j.rating.veto;
     draw();
-    say(t.veto ? `track ${t.n ?? t.id}: vetoed (not published yet)` : `track ${t.n ?? t.id}: ${t.stars || 3} stars${t.stars ? '' : ' (the default)'} (not published yet)`);
+    say(t.veto ? `track ${t.n ?? t.id}: vetoed` : `track ${t.n ?? t.id}: ${t.stars || 3} stars${t.stars ? '' : ' (the default)'}`);
+    pollState();
   } catch (e) { say(`not saved: ${e.message}`, true); }
 }
 
@@ -206,6 +207,16 @@ addEventListener('keydown', (e) => {
   e.preventDefault();
   const row = document.querySelector('tr.sel'); if (row) row.scrollIntoView({ block: 'nearest' });
 });
+async function pollState() {
+  try {
+    const j = await (await fetch('/api/state')).json(), el = $('live');
+    el.style.color = j.error ? 'var(--red)' : 'var(--glow)';
+    el.textContent = j.error ? `not published: ${j.error}` : j.pending ? `going to the radio in ${j.in} s` : j.published ? `on the radio since ${j.published}: ${j.said}` : '';
+    if (pollState.was && !j.pending && j.published !== pollState.seen) { pollState.seen = j.published; load(); }
+    pollState.was = j.pending;
+  } catch { /* the server restarts: the next poll reads it */ }
+}
+setInterval(pollState, 3000);
 new ResizeObserver(() => document.documentElement.style.setProperty('--head', $('head').offsetHeight + 'px')).observe($('head'));
 load();
 </script>
