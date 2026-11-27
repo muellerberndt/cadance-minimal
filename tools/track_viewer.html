@@ -37,7 +37,9 @@
   tr.playing td:first-child { color: var(--glow); text-shadow: 0 0 8px var(--glow-soft); }
   tr.veto td { color: rgba(201, 251, 251, .32); text-decoration: line-through; }
   tr.veto td.act, tr.veto td.stars { text-decoration: none; }
-  .stars span { cursor: pointer; padding: 0 1px; color: var(--faint); font-size: 15px; }
+  .stars { line-height: 1; }
+  .stars span { cursor: pointer; padding: 0 3px; color: var(--faint); font-size: 24px; vertical-align: middle; }
+  .stars span:hover { color: var(--ink); }
   .stars span.on { color: var(--glow); text-shadow: 0 0 6px var(--glow-soft); }
   .stars span.def { color: rgba(74, 241, 242, .45); }
   .vetoB { border-color: rgba(255, 42, 109, .5); color: var(--red); padding: 1px 8px; }
