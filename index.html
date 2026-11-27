@@ -3,25 +3,39 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Cadance Radio</title>
+<title>Cadance Radio | Pragma Research</title>
+<meta name="description" content="Cadance Radio. An endless minimal techno stream composed by a Cadence brain.">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <style>
+  :root { --bg: #000; --glow: #4af1f2; --glow-soft: rgba(74, 241, 242, .55); --ink: #c9fbfb; --dim: rgba(74, 241, 242, .62);
+          --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, "Liberation Mono", monospace; }
   html, body { height: 100%; margin: 0; }
-  body { display: grid; place-items: center; background: #0b0c0e; color: #c8ccd2; font: 16px/1.5 system-ui, sans-serif; }
-  main { max-width: 34rem; padding: 2rem; }
-  h1 { font-size: 1.6rem; letter-spacing: 0.08em; margin: 0 0 0.6rem; color: #f2f3f5; }
-  p { margin: 0.6rem 0; }
-  a { color: #9db7ff; }
-  .state { color: #e0b050; }
+  body { display: grid; place-items: center; background: var(--bg); color: var(--ink); font: 14px/1.6 var(--mono); }
+  main { max-width: 36rem; padding: 2rem; text-align: center; }
+  .mark { width: clamp(72px, 16vw, 128px); margin: 0 auto 1.4rem; color: var(--glow);
+          filter: drop-shadow(0 0 3px var(--glow)) drop-shadow(0 0 14px var(--glow-soft)) drop-shadow(0 0 42px rgba(74, 241, 242, .3)); }
+  .mark svg { display: block; width: 100%; height: auto; overflow: visible; }
+  h1 { font-size: 1.25rem; font-weight: 500; letter-spacing: .32em; margin: 0 0 .3rem; text-shadow: 0 0 8px var(--glow-soft); }
+  .by { color: var(--dim); letter-spacing: .18em; font-size: .78rem; margin: 0 0 1.6rem; }
+  p { margin: .7rem 0; }
+  .state { color: var(--glow); }
+  a { color: var(--ink); text-decoration: none; text-shadow: 0 0 6px var(--glow-soft); }
+  a:hover, a:focus-visible { color: #fff; }
+  a:focus-visible { outline: 1px dashed var(--glow); outline-offset: 6px; }
+  .links { margin-top: 1.6rem; color: var(--dim); }
+  .links a { margin: 0 .35rem; white-space: nowrap; }
 </style>
 </head>
 <body>
 <main>
+  <div class="mark" role="img" aria-label="Pragma Research">
+    <svg viewBox="-1 -1 17 16" aria-hidden="true"><g fill="currentColor" shape-rendering="crispEdges"><rect x="6" y="0" width="3" height="2"/><rect x="5" y="2" width="5" height="2"/><rect x="4" y="4" width="3" height="2"/><rect x="8" y="4" width="3" height="2"/><rect x="3" y="6" width="3" height="2"/><rect x="9" y="6" width="3" height="2"/><rect x="2" y="8" width="3" height="2"/><rect x="10" y="8" width="3" height="2"/><rect x="1" y="10" width="3" height="2"/><rect x="11" y="10" width="3" height="2"/><rect x="0" y="12" width="3" height="2"/><rect x="12" y="12" width="3" height="2"/></g></svg>
+  </div>
   <h1>CADANCE RADIO</h1>
-  <p>An endless minimal techno stream. One Cadence brain hears the bars it has played and writes the next bar; an Auto DJ mixes the tracks it composed.</p>
-  <p class="state">The radio is being set up. Tracks are composing.</p>
-  <p><a href="https://github.com/muellerberndt/cadance-minimal">Docs and source</a> ·
-     <a href="https://github.com/muellerberndt/cadence/blob/main/docs/tutorials/minimal-techno.md">Tutorial</a> ·
-     <a href="https://github.com/muellerberndt/cadence">Cadence</a></p>
+  <p class="by"><a href="https://floatingpragma.ai/">PRAGMA RESEARCH</a></p>
+  <p>An endless minimal techno stream. One Cadence brain hears the bars it has played and writes the next bar. An Auto DJ mixes the tracks it composed.</p>
+  <p class="state">the radio is being set up: tracks are composing</p>
+  <p class="links"><a href="https://github.com/muellerberndt/cadance-minimal">[docs and source]</a><a href="https://github.com/muellerberndt/cadence/blob/main/docs/tutorials/minimal-techno.md">[tutorial]</a><a href="https://github.com/muellerberndt/cadence">[cadence]</a></p>
 </main>
 </body>
 </html>
