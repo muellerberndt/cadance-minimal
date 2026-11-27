@@ -2,8 +2,9 @@
 // loaded before radio-app.js. The Auto DJ (autodj.js) asks for tracks through /api/autodj/*; here those calls are
 // answered from the track store: tracks.json at the store's base URL ({"tracks": [{id, file, brain, bars, bpm, seconds,
 // score?}]}), the MP3 of a track fetched and decoded when the Auto DJ takes it, and its note file ("score": the bars
-// as the brain wrote them, with its recorded view) for the views. Picks are random, with no repeat until the list is
-// through; then the manifest is read again, so new tracks join without a reload. The setting "Live brain (server
+// as the brain wrote them, with its recorded view) for the views. The brains take turns by their weight, and a brain's
+// tracks come at random by their weight (the pick, below); the manifest is read again as the set goes, so new tracks
+// and weights count without a reload. The setting "Live brain (server
 // URL)" is checked here at load: in this version a live brain is reported, and the radio plays on.
 (() => {
   const STORE = 'https://cadance-radio.s3.amazonaws.com';       // the public track store (tracks.json, tracks/<id>.mp3)
@@ -34,7 +35,7 @@
   })();
 
   // ---------- the store ----------
-  let list = null, order = [], last = null, serial = 0, listAt = 0;
+  let list = null, last = null, serial = 0, listAt = 0, brainWeights = {};
   const handed = new Map();            // the Auto DJ's track id -> {entry, kept, audio, notes, error, at}
   const json = (obj, status = 200) => new Response(JSON.stringify(obj), { status, headers: { 'Content-Type': 'application/json' } });
   async function manifest(force) {
@@ -44,26 +45,84 @@
     try {
       const j = await (await realFetch(manifestUrl, { cache: 'no-store' })).json();
       list = (j.tracks || []).filter((t) => t && t.id && t.file && t.bpm && t.bars);
+      brainWeights = j.brain_weights && typeof j.brain_weights === 'object' ? j.brain_weights : {};
       state.error = '';
     } catch (e) { list = list || []; state.error = 'the track store does not answer'; }
     state.tracks = list.length;
     return list;
   }
   state.manifest = manifest;
-  function shuffled(ids) {
-    const a = ids.slice();
-    for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
-    if (a.length > 1 && a[0] === last) a.push(a.shift());          // not the track that just played, at the turn
-    return a;
+  // ---------- the pick ----------
+  // The brains take turns. A brain's share of the turns is its weight: the manifest's "brain_weights" maps a name
+  // prefix to a weight, the longest matching prefix decides, none means 1, and 0 takes a brain out. The turns spread
+  // evenly: before each pick every brain's credit grows by its weight, the brain with the most credit plays and gives
+  // up the sum of the weights (the brains start in a shuffled order). Within a brain its tracks come in rounds by their
+  // own "weight" (default 1; 0: never): a track of weight w >= 1 round(w) times a round, one below 1 once with chance
+  // w; the copies of a track spread over the round (each falls at random in its own part of it), the brain's list is
+  // through before a track repeats, and no track comes twice in a row. The manifest is read again before a pick (at
+  // most every 20 s): a track that left it, or whose weight became 0, is skipped; new tracks count from their brain's
+  // next round, new weights at once.
+  const weightOf = (t) => { const w = t.weight == null ? 1 : +t.weight; return Number.isFinite(w) ? Math.max(0, w) : 1; };
+  function brainWeight(b) {
+    let best = -1, w = 1;
+    for (const [prefix, v] of Object.entries(brainWeights)) if (b.startsWith(prefix) && prefix.length > best) { best = prefix.length; w = +v; }
+    return Number.isFinite(w) ? Math.max(0, w) : 1;
   }
-  async function nextEntry() {                                    // at random, no repeat until every track has played
-    let all = await manifest();
-    if (!order.length) { all = await manifest(true); order = shuffled(all.map((t) => t.id)); }
-    if (!order.length) return null;
-    last = order.shift();
-    state.played.push(last);
-    return all.find((t) => t.id === last) || null;
+  const rounds = new Map(), credit = new Map(), lastOf = new Map();       // per brain: its round, its credit, its last track
+  function round(entries, before) {
+    let best = null;
+    for (let tries = 0; tries < 24; tries++) {   // a few draws: the first in which no track meets itself
+      const keyed = [];
+      for (const t of entries) {
+        const w = weightOf(t), k = w >= 1 ? Math.round(w) : Math.random() < w ? 1 : 0;
+        for (let i = 0; i < k; i++) keyed.push([(i + Math.random()) / k, t.id]);
+      }
+      if (!keyed.length) {                        // only light tracks, none drawn: one of them, by weight
+        const sum = entries.reduce((s, t) => s + weightOf(t), 0);
+        let x = Math.random() * sum;
+        for (const t of entries) { x -= weightOf(t); if (x <= 0) { keyed.push([0, t.id]); break; } }
+      }
+      keyed.sort((p, q) => p[0] - q[0]);
+      const a = [];                               // in key order, each next copy the first that differs from the one before
+      let prev = before;
+      while (keyed.length) { const i = Math.max(0, keyed.findIndex((p) => p[1] !== prev)); prev = keyed.splice(i, 1)[0][1]; a.push(prev); }
+      const meets = a.filter((id, i) => id === (i ? a[i - 1] : before)).length;
+      if (!best || meets < best.meets) best = { a, meets };
+      if (!meets) break;
+    }
+    return best.a;
   }
+  function fromBrain(b, entries) {                // the brain's next track that is still listed and not the one just played
+    const ids = new Set(entries.map((t) => t.id));
+    let q = (rounds.get(b) || []).filter((id) => ids.has(id));
+    if (!q.length || (q.length === 1 && q[0] === last)) q = q.concat(round(entries, q.length ? q[q.length - 1] : lastOf.get(b)));
+    const i = q.findIndex((id) => id !== last);
+    if (i < 0) { rounds.set(b, q); return null; }
+    const id = q.splice(i, 1)[0];
+    rounds.set(b, q); lastOf.set(b, id);
+    return entries.find((t) => t.id === id);
+  }
+  async function nextEntry() {
+    const all = await manifest(true), by = new Map();
+    for (const t of all) {
+      const b = String(t.brain || '');
+      if (weightOf(t) > 0 && brainWeight(b) > 0) (by.get(b) || by.set(b, []).get(b)).push(t);
+    }
+    for (const b of [...credit.keys()]) if (!by.has(b)) credit.delete(b);
+    let sum = 0;
+    for (const b of by.keys()) { sum += brainWeight(b); credit.set(b, (credit.get(b) ?? Math.random() * 0.01) + brainWeight(b)); }
+    for (const b of [...by.keys()].sort((x, y) => credit.get(y) - credit.get(x))) {
+      const e = fromBrain(b, by.get(b));
+      if (!e) continue;                           // only the track that just played: the next brain plays
+      credit.set(b, credit.get(b) - sum);
+      last = e.id; state.played.push(e.id);
+      return e;
+    }
+    const only = all.find((t) => weightOf(t) > 0 && brainWeight(String(t.brain || '')) > 0);      // one track in all: it repeats
+    if (only) { last = only.id; state.played.push(only.id); }
+    return only || null;
+  }
+  state.entries = () => list || [];
   const url = (file) => (/^https?:/.test(file) ? file : base + file.replace(/^\/+/, ''));
   // when the Auto DJ takes a track its note file is read (about 0.5 MB gzipped); the MP3 is fetched and decoded (an
   // AudioBuffer at 44.1 kHz, 188 MB for 534 s) only when a deck cues it, and let go when the deck stops, so no more
