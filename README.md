@@ -97,6 +97,10 @@ by the player's settings), new melodic material beyond what sampling brings, hat
 a whole track, and any measured contribution of the brain's hierarchy. Whether a track sounds good
 is judged by ear. The details and the numbers are in [docs/brains.md](docs/brains.md).
 
+## Contact
+
+Questions, collaboration and press: [info@floatingpragma.ai](mailto:info@floatingpragma.ai).
+
 ## Licence
 
 GPL-3.0, as the Cadence library ([LICENSE](LICENSE)).
