@@ -1,33 +1,106 @@
 <!doctype html>
 <html><head><meta charset="utf-8">
 <style>
-  :root { --glow: #4af1f2; --glow-soft: rgba(74, 241, 242, .55); --ink: #c9fbfb; --dim: rgba(74, 241, 242, .7);
+  :root { --glow: #4af1f2; --glow-soft: rgba(74, 241, 242, .55); --ink: #eaffff; --dim: rgba(190, 250, 250, .78);
           --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace; }
   html, body { margin: 0; width: 1200px; height: 630px; background: #000; overflow: hidden; font-family: var(--mono); color: var(--ink); }
-  .brain { position: absolute; right: -210px; top: -112px; width: 1400px; height: 788px; background: url(brain.png) center / cover no-repeat; filter: saturate(1.15) brightness(1.18) contrast(1.05); }
-  .shade { position: absolute; inset: 0; background:
-      linear-gradient(90deg, #000 0%, rgba(0,0,0,.95) 28%, rgba(0,0,0,.6) 48%, rgba(0,0,0,0) 70%),
-      linear-gradient(0deg, rgba(0,0,0,.85) 0%, rgba(0,0,0,0) 26%),
-      linear-gradient(180deg, rgba(0,0,0,.75) 0%, rgba(0,0,0,0) 20%); }
-  .scan { position: absolute; inset: 0; background: repeating-linear-gradient(0deg, rgba(74,241,242,.035) 0 1px, transparent 1px 3px); mix-blend-mode: screen; }
-  .head { position: absolute; left: 64px; top: 54px; display: flex; align-items: center; gap: 22px; }
-  .mark { width: 62px; color: var(--glow); filter: drop-shadow(0 0 3px var(--glow)) drop-shadow(0 0 14px var(--glow-soft)) drop-shadow(0 0 40px rgba(74,241,242,.35)); }
-  .word { font-size: 30px; letter-spacing: .34em; font-weight: 500; text-shadow: 0 0 10px var(--glow-soft); }
-  .by { font-size: 15px; letter-spacing: .3em; color: var(--dim); margin-top: 6px; }
-  .big { position: absolute; left: 64px; top: 212px; width: 640px; font-size: 62px; line-height: 1.08; font-weight: 600; letter-spacing: -.01em; color: #eaffff; text-shadow: 0 0 22px rgba(74,241,242,.35); }
-  .big em { font-style: normal; color: var(--glow); text-shadow: 0 0 18px var(--glow-soft); }
-  .sub { position: absolute; left: 66px; top: 440px; width: 600px; font-size: 22px; line-height: 1.45; color: var(--ink); }
-  .foot { position: absolute; left: 66px; bottom: 46px; font-size: 19px; letter-spacing: .12em; color: var(--glow); text-shadow: 0 0 8px var(--glow-soft); }
-  .tag { position: absolute; right: 54px; bottom: 46px; font-size: 16px; letter-spacing: .1em; color: var(--dim); }
+  #stage { position: absolute; left: 0; top: 0; width: 1200px; height: 704px; display: block; filter: brightness(1.12) saturate(1.08); }
+  .shade { position: absolute; inset: 0; pointer-events: none; background:
+      radial-gradient(520px 210px at 0% 0%, rgba(0,0,0,.92) 0%, rgba(0,0,0,.55) 55%, rgba(0,0,0,0) 100%),
+      linear-gradient(0deg, rgba(0,0,0,.97) 0%, rgba(0,0,0,.88) 10%, rgba(0,0,0,0) 20%); }
+  .scan { position: absolute; inset: 0; background: repeating-linear-gradient(0deg, rgba(74,241,242,.03) 0 1px, transparent 1px 3px); mix-blend-mode: screen; pointer-events: none; }
+  .head { position: absolute; left: 52px; top: 36px; }
+  .word { font-size: 76px; line-height: 1; font-weight: 600; letter-spacing: .04em; color: var(--ink); text-shadow: 0 0 22px rgba(74,241,242,.3); }
+  .word .a { color: var(--glow); text-shadow: 0 0 6px var(--glow), 0 0 22px var(--glow-soft), 0 0 54px rgba(74,241,242,.45); }
+  .by { display: flex; align-items: center; gap: 12px; margin-top: 12px; font-size: 15px; letter-spacing: .32em; color: var(--dim); }
+  .mark { width: 22px; color: var(--glow); filter: drop-shadow(0 0 3px var(--glow)) drop-shadow(0 0 10px var(--glow-soft)); }
+  .claim { position: absolute; left: 54px; bottom: 34px; font-size: 23px; line-height: 1.25; white-space: nowrap; font-weight: 500; color: var(--ink); text-shadow: 0 0 18px rgba(0,0,0,.9), 0 0 14px rgba(74,241,242,.25); }
+  .claim em { font-style: normal; color: var(--glow); text-shadow: 0 0 14px var(--glow-soft); }
+  .url { position: absolute; right: 50px; bottom: 38px; font-size: 15px; letter-spacing: .04em; color: var(--glow); text-shadow: 0 0 8px var(--glow-soft); }
+  svg.lines { position: absolute; inset: 0; width: 1200px; height: 630px; pointer-events: none; overflow: visible; }
+  svg.lines line { stroke: rgba(234,255,255,.8); stroke-width: 1.2; }
+  svg.lines circle { fill: none; stroke: #eaffff; stroke-width: 1.6; filter: drop-shadow(0 0 4px var(--glow)); }
+  .note { position: absolute; white-space: nowrap; }
+  .note b { display: block; font-size: 21px; font-weight: 600; letter-spacing: .16em; color: var(--ink); text-shadow: 0 0 10px #000, 0 0 10px #000, 0 0 12px rgba(74,241,242,.5); }
+  .note i { display: block; font-style: normal; font-size: 15.5px; letter-spacing: .06em; color: var(--dim); margin-top: 3px; text-shadow: 0 0 8px #000, 0 0 8px #000; }
+  .note.r { text-align: right; }
 </style></head>
 <body>
-  <div class="brain"></div><div class="shade"></div><div class="scan"></div>
-  <div class="head">
-    <svg class="mark" viewBox="-1 -1 17 16"><g fill="currentColor" shape-rendering="crispEdges"><rect x="6" y="0" width="3" height="2"/><rect x="5" y="2" width="5" height="2"/><rect x="4" y="4" width="3" height="2"/><rect x="8" y="4" width="3" height="2"/><rect x="3" y="6" width="3" height="2"/><rect x="9" y="6" width="3" height="2"/><rect x="2" y="8" width="3" height="2"/><rect x="10" y="8" width="3" height="2"/><rect x="1" y="10" width="3" height="2"/><rect x="11" y="10" width="3" height="2"/><rect x="0" y="12" width="3" height="2"/><rect x="12" y="12" width="3" height="2"/></g></svg>
-    <div><div class="word">CADANCE RADIO</div><div class="by">PRAGMA RESEARCH</div></div>
-  </div>
-  <div class="big">A deep brain that <em>hears</em>, <em>plans</em> and <em>plays</em>.</div>
-  <div class="sub">Endless techno, written bar by bar by a real&#8209;time brain with a memory. Watch it think while it plays.</div>
-  <div class="foot">cadance.floatingpragma.ai</div>
-  <div class="tag">built with Cadence</div>
+<canvas id="stage"></canvas>
+<div class="shade"></div><div class="scan"></div>
+<svg class="lines" id="lines"></svg>
+<div id="notes"></div>
+<div class="head">
+  <div class="word">cad<span class="a">a</span>nce</div>
+  <div class="by"><svg class="mark" viewBox="-1 -1 17 16"><g fill="currentColor" shape-rendering="crispEdges"><rect x="6" y="0" width="3" height="2"/><rect x="5" y="2" width="5" height="2"/><rect x="4" y="4" width="3" height="2"/><rect x="8" y="4" width="3" height="2"/><rect x="3" y="6" width="3" height="2"/><rect x="9" y="6" width="3" height="2"/><rect x="2" y="8" width="3" height="2"/><rect x="10" y="8" width="3" height="2"/><rect x="1" y="10" width="3" height="2"/><rect x="11" y="10" width="3" height="2"/><rect x="0" y="12" width="3" height="2"/><rect x="12" y="12" width="3" height="2"/></g></svg>PRAGMA RESEARCH</div>
+</div>
+<div class="claim">A human-like brain that <em>hears</em> and <em>composes</em> minimal techno.</div>
+<div class="url">cadance.floatingpragma.ai</div>
+<script type="module">
+// The social card (og.png, 1200 x 630): the wired scene of the brain stage at a held moment, with the cortices and
+// the memory named. It draws a published track and the packed brain of the radio site, so any static server shows it:
+//   python -m http.server 8803 --bind 127.0.0.1 --directory site      then /brand/social-card.html
+//   ?bar=40.55 (the held moment)  &track=<url of a note file>  &brain=<url of a packed brain>  &plain=1 (no names)
+// A screenshot of the page at 1200 x 630 is the card; window.__ready turns true when the picture stands.
+import { BrainStage } from '../brainstage.js';
+const STORE = 'https://cadance-radio.s3.amazonaws.com', SITE = 'https://cadance.floatingpragma.ai';
+const q = new URLSearchParams(location.search);
+const canvas = document.getElementById('stage');
+const stage = new BrainStage(canvas, { calm: false });
+window.stage = stage;
+stage._drawLabels = (mvp) => { window.__mvp = Array.from(mvp); };          // the card names the regions itself
+const first = async () => `${STORE}/${(await (await fetch(`${STORE}/tracks.json`)).json()).tracks[0].score}`;
+const track = await (await fetch(q.get('track') || await first())).json();
+const bars = track.bars, bpm = 145, barDur = 240 / bpm;
+stage.setLayout(track.layout);
+stage.setBrain(await (await fetch(q.get('brain') || `${SITE}/brain3d/brain.b3d`)).arrayBuffer());
+stage.setScene('wired'); stage.from = null;
+const target = +(q.get('bar') || 40.55), fake = { currentTime: 0 };
+stage.setClock({ ctx: fake, bpm, barZeroTime: 0 });
+const from = Math.max(0, Math.floor(target) - 130);
+let at = -1;
+const give = (t) => { const i = Math.floor(t / barDur + 1e-9); if (i !== at) { for (let k = Math.max(from, at + 1); k <= i; k++) stage.setBar(k, bars[k % bars.length]); at = i; } };
+let frame = 0; const steps = 48, t0 = (target - 0.7) * barDur, t1 = target * barDur;
+give(t0); fake.currentTime = t0; stage.start();
+const W = canvas.clientWidth, H = canvas.clientHeight;
+const project = ([x, y, z]) => { const m = window.__mvp; const cw = m[3] * x + m[7] * y + m[11] * z + m[15];
+  return [((m[0] * x + m[4] * y + m[8] * z + m[12]) / cw * 0.5 + 0.5) * W, (0.5 - (m[1] * x + m[5] * y + m[9] * z + m[13]) / cw * 0.5) * H]; };
+function annotate() {
+  if (q.get('plain') === '1' || !window.__mvp) return;
+  const c = stage.geo.centre, He = stage.HEAR, Pl = stage.PLAY, rg = stage.ringGeo;
+  const lanes = ['beat', 'bass', 'lead', 'air'].map((k) => c[k + '_plan']).filter(Boolean);
+  const mid = lanes.length ? lanes.reduce((a, p) => [a[0] + p[0] / lanes.length, a[1] + p[1] / lanes.length, 0], [0, 0, 0]) : [0, 0, 0];
+  window.__anchors = { ear: project([He.x + He.w * 0.5, He.y + He.h * 0.5, 0]), pre: c.prefrontal && project(c.prefrontal), co: c.association && project(c.association),
+    motor: project([Pl.x + Pl.w * 0.5, Pl.y + Pl.h * 0.5, 0]), ring: project(rg.c), lanes: project(mid), code: c.code && project(c.code) };
+  const N = JSON.parse(q.get('notes') || 'null') || window.NOTES;
+  const svg = document.getElementById('lines'), box = document.getElementById('notes');
+  for (const n of N) {
+    const a = window.__anchors[n.at]; if (!a) continue;
+    const ax = a[0] + (n.ax || 0), ay = a[1] + (n.ay || 0), x = n.x, y = n.y;
+    const d = document.createElement('div'); d.className = 'note' + (n.right ? ' r' : '');
+    d.innerHTML = `<b>${n.t}</b><i>${n.s}</i>`;
+    box.appendChild(d);
+    const w = d.offsetWidth, h = d.offsetHeight;
+    d.style.left = (n.right ? x - w : x) + 'px'; d.style.top = y + 'px';
+    const lx = n.lx != null ? n.lx : (n.right ? x - w / 2 : x + w / 2), ly = n.ly != null ? n.ly : (ay > y ? y + h + 6 : y - 6);
+    const dx = ax - lx, dy = ay - ly, len = Math.hypot(dx, dy) || 1, r = 6;
+    svg.insertAdjacentHTML('beforeend', `<line x1="${lx}" y1="${ly}" x2="${ax - dx / len * r}" y2="${ay - dy / len * r}"/><circle cx="${ax}" cy="${ay}" r="${r}"/>`);
+  }
+}
+const step = () => {
+  frame++; const t = t0 + (t1 - t0) * Math.min(1, frame / steps);
+  give(t); fake.currentTime = t;
+  if (frame < steps + 6) requestAnimationFrame(step); else { annotate(); window.__ready = true; }
+};
+requestAnimationFrame(step);
+</script>
+<script>
+// where each name stands on the card (px) and which place of the brain it points at
+window.NOTES = [
+  { at: 'ear', t: 'AUDITORY CORTEX', s: 'hears what it played', x: 44, y: 496, ay: 40 },
+  { at: 'pre', t: 'PREFRONTAL CORTEX', s: 'plans the next bar', x: 300, y: 172 },
+  { at: 'ring', t: 'MEMORY', s: 'recalls earlier bars', x: 830, y: 34 },
+  { at: 'motor', t: 'MOTOR CORTEX', s: 'plays the instruments', x: 1156, y: 496, right: true, ay: 60 },
+];
+</script>
 </body></html>
