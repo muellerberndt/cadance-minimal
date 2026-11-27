@@ -437,7 +437,7 @@ $('apiUrl').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('apiSa
 // ---------- the tutorial and "what am I looking at" ----------
 const tour = $('tour');
 const TOUR = [
-  { mark: ['viz'], html: `<p>Cadance Radio plays tracks composed by Cadance brains. The Auto DJ mixes them live in your browser, and the picture shows the brain that wrote the bar you hear.</p><p><a href="https://github.com/muellerberndt/cadence" target="_blank" rel="noopener">${TAGLINE}</a></p>` },
+  { mark: ['viz'], html: `<p>Cadance Radio plays tracks composed by Cadance brains. The Auto DJ mixes them live in your browser, and the picture shows the brain that wrote the bar you hear.</p><p><a href="https://cadence.floatingpragma.ai/" target="_blank" rel="noopener">${TAGLINE}</a></p>` },
   { mark: ['gearB'], html: '<p>Composing live needs a server that hosts the Cadance neural network. <a href="https://github.com/muellerberndt/cadance-minimal/blob/main/docs/running.md#a-live-composer-for-the-radio-site" target="_blank" rel="noopener">How to run one</a></p><p>The gear is where you set its address.</p>' },
   { mark: ['bigPlayB', 'gearB'], html: '<p>Two options:</p><div class="row"><button id="tourPlay" class="go">Play the radio now</button><button id="tourGear">Configure a neural network server first</button></div>' },
 ];
