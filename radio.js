@@ -1,11 +1,12 @@
 // Cadance Radio (the static site, tools/build_radio.py): the track store and the page's /api calls. A classic script,
 // loaded before radio-app.js. The Auto DJ (autodj.js) asks for tracks through /api/autodj/*; here those calls are
 // answered from the track store: tracks.json at the store's base URL ({"tracks": [{id, file, brain, bars, bpm, seconds,
-// score?}]}), the MP3 of a track fetched and decoded when the Auto DJ takes it, and its note file ("score": the bars
-// as the brain wrote them, with its recorded view) for the views, and the sound pool a track names. The brains take
-// turns by their weight, and a brain's tracks come at random by their weight (the pick, below); the manifest is read
-// again as the set goes, so new tracks and weights count without a reload. The setting "Live brain (server URL)" is
-// checked here at load: in this version a live brain is reported, and the radio plays on.
+// score?, weight?, lufs?}]}), the MP3 of a track read by segments as a deck plays it (by byte ranges; the whole file at
+// once from a store without them), and its note file ("score": the bars as the brain wrote them, with its recorded
+// view) for the views, and the sound pool a track names. The brains take turns by their weight, and a brain's tracks
+// come at random by their weight (the pick, below); the manifest is read again as the set goes, so new tracks and
+// weights count without a reload. The setting "Live brain (server URL)" is checked here at load: in this version a
+// live brain is reported, and the radio plays on.
 (() => {
   const STORE = 'https://cadance-radio.s3.amazonaws.com';       // the public track store (tracks.json, tracks/<id>.mp3)
   const KEY = 'cadance.api';
@@ -143,9 +144,8 @@
     return pools.get(name);
   };
   const url = (file) => (/^https?:/.test(file) ? file : base + file.replace(/^\/+/, ''));
-  // when the Auto DJ takes a track its note file is read (about 0.5 MB gzipped); the MP3 is fetched and decoded (an
-  // AudioBuffer at 44.1 kHz, 188 MB for 534 s) only when a deck cues it, and let go when the deck stops, so no more
-  // tracks are fetched and decoded than decks play
+  // when the Auto DJ takes a track its note file is read (about 0.4 MB gzipped); its sound is read when a deck plays
+  // it, by segments, and let go when the deck stops (a whole decoded file at 44.1 kHz is 160 MB for 450 s)
   function release(id) { const h = handed.get(id); if (h) { h.audio = null; h.decoding = null; h.notes = null; } }
   state.release = release;
   state.track = (id) => handed.get(id) || null;
@@ -153,6 +153,84 @@
     h.notes = h.entry.score ? await realFetch(url(h.entry.score)).then((r) => (r.ok ? r.json() : null)).catch(() => null) : null;
     h.ready = true;
   }
+  // ---- by segments (phones): the MP3s are CBR, so the byte where frame k starts is known to a byte. A deck asks for the
+  // PCM of a stretch of bars; this fetches those frames by a Range request (with three frames before them, which the
+  // decoder needs to rebuild the first one), decodes them and cuts the stretch out to the sample: the whole file's
+  // decoded sample p is the stream's sample p + the encoder delay + 529 (the LAME tag's delay plus the decoder's).
+  const FRAME = 1152;
+  function header(b, o) {                     // an MPEG-1 Layer III frame header at o: its bitrate, rate and length
+    if (o < 0 || o + 4 > b.length || b[o] !== 0xff || (b[o + 1] & 0xfe) !== 0xfa) return null;
+    const kbps = [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 0][b[o + 2] >> 4], sr = [44100, 48000, 32000, 0][(b[o + 2] >> 2) & 3];
+    if (!kbps || !sr) return null;
+    return { kbps, sr, len: Math.floor((144000 * kbps) / sr) + ((b[o + 2] >> 1) & 1) };
+  }
+  function probe(h) {
+    return (h.probe ||= (async () => {
+      const r = await realFetch(url(h.entry.file), { headers: { Range: 'bytes=0-4095' } });
+      if (r.status !== 206) return null;                       // a store without byte ranges: the whole file
+      const size = +(r.headers.get('Content-Range') || '').split('/')[1] || 0, b = new Uint8Array(await r.arrayBuffer());
+      let o = 0;
+      if (b[0] === 0x49 && b[1] === 0x44 && b[2] === 0x33) o = 10 + ((b[6] << 21) | (b[7] << 14) | (b[8] << 7) | b[9]);
+      const hd = header(b, o);
+      if (!hd || !size) return null;
+      let start = o, delay = 576 + 529;
+      const tag = String.fromCharCode(b[o + 36], b[o + 37], b[o + 38], b[o + 39]);
+      if (tag === 'Info' || tag === 'Xing') {                  // the LAME tag: the encoder's delay, 12 bits
+        const l = o + 36 + 120;
+        delay = ((b[l + 21] << 4) | (b[l + 22] >> 4)) + 529;
+        start = o + hd.len;
+      }
+      return { size, start, sr: hd.sr, per: (144000 * hd.kbps) / hd.sr, delay };
+    })().catch(() => null));
+  }
+  async function pcm(h, p0, p1) {             // the track's decoded samples [p0, p1) as an AudioBuffer, from its frames
+    const P = await probe(h);
+    if (!P) return null;
+    const est = (k) => P.start + Math.floor(k * P.per);
+    const r0 = p0 + P.delay, r1 = p1 + P.delay, F = Math.max(0, Math.floor(r0 / FRAME) - 3), F1 = Math.ceil(r1 / FRAME) + 1;
+    const a = Math.max(P.start, est(F) - 8), z = Math.min(P.size - 1, est(F1 + 1) + 8);
+    const r = await realFetch(url(h.entry.file), { headers: { Range: `bytes=${a}-${z}` } });
+    if (r.status !== 206) throw new Error('the track store did not send the part asked for');
+    const b = new Uint8Array(await r.arrayBuffer());
+    let s = -1;
+    for (let d = 0; d <= 8 && s < 0; d = d > 0 ? -d : 1 - d) {                    // frame F: 0, +1, -1, +2, ... bytes off
+      const o = est(F) - a + d, x = header(b, o);
+      if (x && header(b, o + x.len)) s = o;
+    }
+    if (s < 0) throw new Error('the track could not be read (no frame where expected)');
+    let o = s;
+    for (let k = F; k < F1; k++) { const x = header(b, o); if (!x) break; o += x.len; }
+    const raw = await new OfflineAudioContext(2, 1, P.sr).decodeAudioData(b.slice(s, o).buffer);
+    const off = r0 - F * FRAME, n = p1 - p0;
+    if (raw.length < off + n) throw new Error('the track ended early');
+    const out = new AudioBuffer({ numberOfChannels: 2, length: n, sampleRate: P.sr });
+    for (let c = 0; c < 2; c++) out.copyToChannel(raw.getChannelData(Math.min(c, raw.numberOfChannels - 1)).subarray(off, off + n), c);
+    return out;
+  }
+  state.ranged = async (id) => { const h = handed.get(id); return !!(h && (await probe(h))); };
+  state.pcm = (id, p0, p1) => {
+    const h = handed.get(id), k = `${p0}-${p1}`;
+    if (!h) return Promise.reject(new Error('no such track'));
+    if (h.pre && h.pre.has(k)) { const ahead = h.pre.get(k); h.pre.delete(k); return ahead.then((b) => b || pcm(h, p0, p1)); }
+    return pcm(h, p0, p1);
+  };
+  // The first track is picked and read while the page loads: its notes and its first 16 bars, decoded (9 MB). A tap on
+  // play then sounds on the next bar line or so, without waiting for the store. The Auto DJ's first request gets it.
+  let warm = null;
+  function hand(entry, kept = false) {
+    const id = `r${++serial}`, h = { id, entry, kept, audio: null, notes: null, error: '', at: performance.now(), pre: new Map() };
+    handed.set(id, h);
+    h.loading = load(h);
+    return h;
+  }
+  state.warm = async () => {
+    if (warm || serial) return;
+    const e = await nextEntry();
+    if (!e || serial) return;
+    const h = warm = hand(e), S = (b) => Math.round(b * (240 / e.bpm) * 44100);
+    if (await probe(h)) h.pre.set(`${S(0)}-${S(16)}`, pcm(h, S(0), S(16)).catch(() => null));
+  };
+  // the whole track at once: a store without byte ranges
   state.decode = (id) => {
     const h = handed.get(id);
     if (!h) return Promise.reject(new Error('no such track'));
@@ -189,19 +267,17 @@
     }
     if (path === '/api/autodj/track' && method === 'POST') {
       if (body.model === 'repertoire') return json({ id: null });
+      if (warm) { const h = warm; warm = null; h.kept = !!body.kept_only; return json({ id: h.id }); }      // the track read ahead
       const entry = await nextEntry();
       if (!entry) return json({ id: null });
-      const id = `r${++serial}`, h = { id, entry, kept: !!body.kept_only, audio: null, notes: null, error: '', at: performance.now() };
-      handed.set(id, h);
-      h.loading = load(h);
-      return json({ id });
+      return json({ id: hand(entry, !!body.kept_only).id });
     }
     if (path === '/api/autodj/track') {
       const h = handed.get(u.searchParams.get('id'));
       if (!h) return json({ error: 'no such track' });
       if (h.error) return json({ error: h.error });
       const n = h.entry.bars;
-      if (!h.ready) return json({ id: h.id, bars: [], want: n, total: n, done: false, error: null, state: 'reading the track' });
+      if (!h.ready) await h.loading;                            // the bars come with the first answer
       const from = Math.max(0, +u.searchParams.get('from') || 0);
       return json({ id: h.id, bars: bars(h).slice(from), want: n, total: n, done: true, error: null, pool: 'radio', bpm: h.entry.bpm,
         checkpoint: h.entry.brain, kept: h.kept, state: 'idle', layout: (h.notes && h.notes.layout) || null });
@@ -209,10 +285,10 @@
     if (path === '/api/autodj/pool') return json({});                        // a file deck needs no pool
     if (path === '/api/autodj/keep') {
       const keep = new Set(body.ids || []);
-      for (const [id, h] of handed) if (!keep.has(id) && !(state.onDeck || new Set()).has(id)) { release(id); handed.delete(id); }
+      for (const [id, h] of handed) if (!keep.has(id) && !(state.onDeck || new Set()).has(id) && h !== warm) { release(id); handed.delete(id); }
       return json({ ok: true });
     }
-    if (path === '/api/autodj/stop') { for (const id of [...handed.keys()]) if (!(state.onDeck || new Set()).has(id)) { release(id); handed.delete(id); } return json({ ok: true }); }
+    if (path === '/api/autodj/stop') { for (const [id, h] of [...handed]) if (!(state.onDeck || new Set()).has(id) && h !== warm) { release(id); handed.delete(id); } return json({ ok: true }); }
     if (path === '/api/brain3d') return realFetch('brain3d/brain.b3d');      // the one brain the 3D modes draw
     if (path === '/api/status') return json({ ok: true, loading: null, ready: true, active: null, radio: true });
     return json({ error: 'radio mode' }, 404);

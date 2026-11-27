@@ -16,9 +16,9 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); 
 a { color: var(--glow); text-decoration: none; }
 button, select, input { font: inherit; color: var(--ink); }
 #stage { position: fixed; inset: 0; }
-#viz, #hero, #djv { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
-#hero, #djv { background: var(--bg); }
-#viz[hidden], #hero[hidden], #djv[hidden], #devices[hidden], .scan[hidden] { display: none; }
+#viz, #hero, #djv, #mixv { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+#hero, #djv, #mixv { background: var(--bg); }
+#viz[hidden], #hero[hidden], #djv[hidden], #mixv[hidden], #devices[hidden], .scan[hidden] { display: none; }
 .scan { position: fixed; inset: 0; pointer-events: none; z-index: 2;
   background: repeating-linear-gradient(to bottom, rgba(255, 255, 255, .02) 0 1px, transparent 1px 3px); }
 
@@ -90,11 +90,18 @@ button, select, input { font: inherit; color: var(--ink); }
 .consent p a { color: var(--glow); border-bottom: 1px dotted var(--dim); }
 .consent .links a { color: var(--glow); }
 
+/* a phone: one row of icons (the volume is the phone's own, the links are in the settings), so the bar stays low */
 @media (max-width: 640px) {
+  #bar { padding: 8px 10px 10px; gap: 6px; }
+  #bar .links { display: none; }
   .links { width: 100%; flex-wrap: wrap; row-gap: 6px; }
-  .controls { flex-wrap: wrap; }
-  .vol input { width: 64px; }
+  .controls { gap: 4px; }
+  .views { gap: 4px; }
+  .ic { width: 28px; height: 28px; }
+  .vol { display: none; }
 }
+.panel-links { margin-top: 14px; }
+@media (min-width: 641px) { .panel-links { display: none; } }
 /* over the devices, which scroll under it, the bar is solid */
 body[data-view="devices"] #bar { background: rgba(0, 0, 0, .94); }
 @media (prefers-reduced-motion: reduce) {
@@ -107,7 +114,7 @@ body[data-view="devices"] #bar { background: rgba(0, 0, 0, .94); }
 #devices .devhead { max-width: 1100px; margin: 0 auto 8px; font-size: 12px; color: var(--dim); }
 #devNote { color: var(--red); }
 #devCanvas { display: block; width: 100%; max-width: 1100px; margin: 0 auto; }
-@media (max-width: 760px) { #devices { padding: 116px 12px 150px; } }
+@media (max-width: 760px) { #devices { padding: 116px 12px 72px; } }
 
 /* the controls are icons: the views as a group, the one in view lit */
 .ic svg, .vol svg { width: 16px; height: 16px; fill: currentColor; }

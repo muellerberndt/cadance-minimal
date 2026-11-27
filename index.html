@@ -47,6 +47,7 @@
     <canvas id="devCanvas" aria-label="the drum machine and the three synth voices, playing the bar that sounds"></canvas>
   </section>
   <canvas id="djv" hidden aria-label="the Auto DJ's decks"></canvas>
+  <canvas id="mixv" hidden aria-label="the Auto DJ at work: three decks, their tracks and their controls"></canvas>
   <div class="scan" aria-hidden="true"></div>
 
   <header class="brand">
@@ -90,6 +91,12 @@
     <p class="help">A server that hosts the Cadance neural network composes live; this page connects to it. <a href="https://github.com/muellerberndt/cadance-minimal/blob/main/docs/running.md#a-live-composer-for-the-radio-site" target="_blank" rel="noopener">How to run one</a></p>
     <p id="apiState" class="state"></p>
     <div class="row"><button id="apiSave">save</button><button id="apiClose">close</button></div>
+    <nav class="links panel-links" aria-label="links">
+      <a href="https://github.com/muellerberndt/cadance-minimal" target="_blank" rel="noopener">docs and source</a>
+      <a href="https://github.com/muellerberndt/cadence/blob/main/docs/tutorials/minimal-techno.md" target="_blank" rel="noopener">tutorial</a>
+      <a href="https://cadence.floatingpragma.ai/" target="_blank" rel="noopener">cadence</a>
+      <a href="mailto:info@floatingpragma.ai">info@floatingpragma.ai</a>
+    </nav>
   </section>
 
   <section id="tour" class="panel tour" hidden aria-live="polite" aria-label="tutorial">
