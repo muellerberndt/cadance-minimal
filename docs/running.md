@@ -98,7 +98,7 @@ lists the runs it finds under `quality/composer/<name>/`.
 | --- | --- | --- |
 | The Auto DJ's planner | `node site/test_autodj.mjs` | nothing |
 | The engine | `node engine/checks.mjs --no-fit` | a pool file (`pool/pool_v0.json`), not shipped |
-| The brain's wiring | `cd brain && python -m unittest test_hierarchy` | a pool file (`pool/pool_underground.json`), not shipped |
+| The brain's wiring | `cd brain && python -m unittest test_hierarchy` | the Cadence library; without a fitted pool the tests take a synthetic one of the same shape, and the three SID tests skip (they need `pool/pool_underground_sid.json`, not shipped) |
 | The composer checkpoint | `cd brain && python -m unittest test_composer` | the Cadence library |
 | The player's requests | `cd site && python -m unittest test_playback test_stats_live` | the Cadence library |
 | The page in a browser | `python site/e2e_test.py 8793` | Playwright, and a test instance on that port with a brain |

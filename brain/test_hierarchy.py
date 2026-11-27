@@ -1,5 +1,6 @@
 """The two pathways share a brain, but cannot communicate below the coordinator."""
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -12,11 +13,32 @@ import hierarchy
 import timbre
 
 ROOT = Path(__file__).resolve().parents[1]
+POOL = ROOT / "pool/pool_underground.json"
+SID_POOL = ROOT / "pool/pool_underground_sid.json"
+NO_SID_POOL = "needs the fitted SID pool (pool/pool_underground_sid.json), which is not shipped"
+HAS_SID_POOL = SID_POOL.is_file() and not os.environ.get("CADANCE_SYNTHETIC_POOL")
+
+
+def sound_pool():
+    """The fitted sound pool when the checkout has it. A fresh clone has none (the pool is not shipped), and these
+    tests read only its shape: four layers (beat, bass, lead, air) of 65 sounds each, every control in range. Then a
+    synthetic pool of that shape stands in. CADANCE_SYNTHETIC_POOL=1 runs the tests as a clone does: the synthetic pool,
+    and the tests of the fitted SID pool skipped."""
+    if POOL.is_file() and not os.environ.get("CADANCE_SYNTHETIC_POOL"):
+        return json.loads(POOL.read_text())
+    layers = [{"name": "beat", "tokens": [None] * 65}]
+    for i, name in enumerate(("bass", "lead", "air")):
+        tokens = [None] + [{"voice": "synth",
+                            "patch": {key: ((j + 3 * k) % 7) / 6 for k, key in enumerate(timbre.NAMES)},
+                            "pattern": {"notes": [36 + 12 * i + j % 12, None] * 8, "vel": [0.85] * 16}}
+                           for j in range(1, 65)]
+        layers.append({"name": name, "tokens": tokens})
+    return {"version": 1, "layers": layers}
 
 
 class HierarchyTests(unittest.TestCase):
     def setUp(self):
-        pool = json.loads((ROOT / "pool/pool_underground.json").read_text())
+        pool = sound_pool()
         common.ONOFF = False
         common.RESERVE = common.SID_LIVE = False
         common.set_content(None)
@@ -228,14 +250,32 @@ class HierarchyTests(unittest.TestCase):
             self.assertEqual(sorted(split[name] + split[f"{name}_sound"]), sorted(four[name]))
             self.assertEqual(len(split[name]), common.SYN // 3)          # the notes alone
 
-    def test_the_slate_keeps_the_direct_route_and_wires_its_pathways(self):
+    def test_the_slate_has_no_route_from_memory_to_the_motor_and_wires_its_pathways(self):
         import layouts
 
         for name, entry in layouts.LAYOUTS.items():
             with self.subTest(layout=name):
                 preset, over = layouts.layout(name)
                 settings = {**common.common_settings(), **common.PRESETS[preset], **over}
-                # the route: a remembered bar reads into the motor slots, through a code as wide as the observation
+                # generation 2: no route from memory to the motor slots (the recall reaches hidden regions alone), four
+                # attention heads, a learned code as wide as the observation, open labels
+                self.assertIn(preset, layouts.NO_ROUTE)
+                self.assertIsNone(settings["recall_tokens"])
+                self.assertEqual(settings["recall_gain"], 0.0)
+                self.assertFalse(settings["recall_action"])
+                self.assertEqual(settings["recall_heads"], common.L)
+                self.assertEqual(settings["learned_code"], "observation")
+                self.assertIn(preset, common.OPEN_LABEL_PRESETS)
+                parts = common.pathway_slots(hierarchy.PRESETS[preset])
+                pathways = [part for part in parts if part != hierarchy.COORDINATOR]
+                self.assertEqual(len(pathways), entry["pathways"])
+                self.assertEqual(len(settings["modules"]), 2 * len(pathways) + 1)
+        # Generation 1, still built by name for its old snapshots and probes: the route, a remembered bar read into the
+        # motor slots through a code as wide as the observation.
+        for name, entry in layouts.S1_LAYOUTS.items():
+            with self.subTest(layout=name):
+                preset, over = layouts.layout(name)
+                settings = {**common.common_settings(), **common.PRESETS[preset], **over}
                 self.assertEqual(list(settings["recall_tokens"]), list(range(common.ACTIONS)))
                 self.assertEqual(settings["recall_gain"], 1.0)
                 self.assertGreaterEqual(settings["learned_code"], common.INPUTS)
@@ -247,7 +287,46 @@ class HierarchyTests(unittest.TestCase):
                 pathways = [part for part in parts if part != hierarchy.COORDINATOR]
                 self.assertEqual(len(pathways), entry["pathways"])
                 self.assertEqual(len(settings["modules"]), 2 * len(pathways) + 1)
-        # The wiring of the two new layouts, on a small copy without the route (the topology is the same).
+        # The innate copies of the slate's reflex and echo layouts, on a small copy of each (the arcs do not depend on
+        # the widths): heard value v of a slot drives motor value v, at reflex_gain for the bar heard (the kit slot at
+        # reflex_kit_gain) and at reflex_lag_gains for the bars further back (with reflex_lag_groups on the drum rows
+        # and synth lines alone); every other synapse of the arcs is born at zero.
+        edges = np.cumsum([0, *common.SIZES])
+        width = int(edges[-1])
+        lines = list(range(common.L + common.MODS, common.L + common.MODS + common.STEPS + common.SYN))
+        for name in layouts.LAYOUTS:
+            preset, over = layouts.layout(name)
+            if over.get("reflex_birth") != "diagonal":
+                continue
+            with self.subTest(innate=name):
+                small = {**over, "modules": [max(8, w // 16) for w in over["modules"]], "learned_code": 48}
+                try:
+                    brain, _ = common.compose(preset, backend="cpu", **small)
+                    graph = brain.connectome
+                    heard, motor = (np.asarray(graph.populations[key]) for key in ("sensory", "motor"))
+                    pre, post = np.asarray(graph.pre), np.asarray(graph.post)
+                    arc = np.isin(pre, heard) & np.isin(post, motor)
+                    sign = np.asarray(graph.sign, dtype=float)[arc]
+                    column, target = pre[arc] - heard.min(), post[arc] - motor.min()
+                    later = column >= common.INPUTS                     # the lag blocks follow the observation's columns
+                    lag = np.where(later, 1 + (column - common.INPUTS) // width, 0)
+                    value = np.where(later, (column - common.INPUTS) % width, column)
+                    diagonal = value == target
+                    self.assertFalse(sign[~diagonal].any())
+                    lags = over.get("echo_lags") or [1]
+                    self.assertEqual(sorted(set(lag[diagonal].tolist())), list(range(len(lags))))
+                    for k in range(len(lags)):                         # every slot's every value, at every lag
+                        self.assertEqual(int((diagonal & (lag == k)).sum()), width)
+                    slot = np.searchsorted(edges, target, side="right") - 1
+                    expected = np.asarray(over.get("reflex_lag_gains") or [over["reflex_gain"]], dtype=float)[lag]
+                    expected[(lag == 0) & (slot == 0)] = over["reflex_kit_gain"]
+                    if over.get("reflex_lag_groups"):
+                        expected[(lag > 0) & ~np.isin(slot, lines)] = 0.0
+                    np.testing.assert_array_equal(sign[diagonal], expected[diagonal])
+                    self.assertEqual(np.asarray(brain.recall.gains).size, 0)        # no recall port into the motor
+                finally:
+                    common.ECHO_LAGS = ()
+        # The wiring of the two route layouts, on a small copy without the route (the topology is the same).
         small = dict(learned_code=48, **common.AUDIBLE_RECALL)
         for preset, widths in ((hierarchy.TRIO_PRESET, (16, 12) * 3 + (10,)), (hierarchy.PARTS_PRESET, (16, 12) * 7 + (10,))):
             with self.subTest(preset=preset):
@@ -269,8 +348,10 @@ class HierarchyTests(unittest.TestCase):
         import layouts
         from cadence import Brain
 
-        for name in layouts.LAYOUTS:
+        for name in layouts.S1_LAYOUTS:                     # the route layouts (generation 1)
             self.assertEqual(layouts.layout(name)[1]["recall_gain_born"], layouts.BORN_GAIN)
+        for name in layouts.LAYOUTS:                        # the slate: no route, no born gain
+            self.assertNotIn("recall_gain_born", layouts.layout(name)[1])
         # Cadence composes the gains at zero. The slate sets the first head's recall port and leaves the rest.
         brain = Brain.compose(12, 12, slots=(4,) * 3, modules=(8,), seed=0, recall=True, recall_heads=2,
                               recall_tokens=range(12), recall_gain=1.0)
@@ -326,7 +407,7 @@ class ReservedShapeTests(unittest.TestCase):
     """The stage-1 shape: idle inputs and idle SID slots for the later stages, and the live parts as they were."""
 
     def setUp(self):
-        self.pool = json.loads((ROOT / "pool/pool_underground.json").read_text())
+        self.pool = sound_pool()
         common.ONOFF = False
         common.set_content(None)
         self.configure(False)
@@ -413,8 +494,9 @@ class ReservedShapeTests(unittest.TestCase):
         self.assertEqual(common.common_settings()["learned_code"], 1856)
         self.assertNotEqual(common.layout_key({"reserve": "kits"}), common.layout_key({"reserve": "inputs"}))
 
+    @unittest.skipUnless(HAS_SID_POOL, NO_SID_POOL)
     def test_sid_lessons_label_every_sounding_bar_with_its_sounds_sid_fit(self):
-        sounds = json.loads((ROOT / "pool/pool_underground_sid.json").read_text())
+        sounds = json.loads(SID_POOL.read_text())
         book = timbre.sid_book(sounds)
         self.assertEqual([len(table) for table in book["layers"]], [len(layer["tokens"]) for layer in self.pool["layers"][1:]])
         #                 kit bass lead air
@@ -485,18 +567,27 @@ class ReservedShapeTests(unittest.TestCase):
         import check
         from cadence import Brain
 
-        brain, _ = check.bench_brain("split", 3)
+        def attended(brain):
+            rng = np.random.default_rng(0)
+            bars = rng.integers(0, check.VALUES, (1, 10, check.BENCH_SLOTS))
+            brain.reset()
+            for t in range(9):
+                x = check.bench_observe(bars[:, t])
+                brain.act(x, greedy=True)
+            brain.act(x, greedy=True)                           # the answer on bar 8: the heads read
+            return [int(np.asarray(a)[0].argmax()) for a in brain.recall.attended_heads]
+
+        # the route layout (generation 1): each head's recall port into the motor starts at its gain
+        brain, _ = check.bench_brain("split_route", 3)
         common.born_lags(brain, [1, 2, 4, None], [0.1, 0.05, 0.075, 0.0], bias=1e4)
         np.testing.assert_allclose(np.asarray(brain.recall.gains), [0.1, 0, 0.05, 0, 0.075, 0, 0, 0])
-        rng = np.random.default_rng(0)
-        bars = rng.integers(0, check.VALUES, (1, 10, check.BENCH_SLOTS))
-        brain.reset()
-        for t in range(9):
-            x = check.bench_observe(bars[:, t])
-            brain.act(x, greedy=True)
-        brain.act(x, greedy=True)                               # the answer on bar 8: the heads read
-        attended = [int(np.asarray(a)[0].argmax()) for a in brain.recall.attended_heads]
-        self.assertEqual(attended[:3], [8, 7, 5])               # the bars that repeat at lags 1, 2 and 4
+        self.assertEqual(attended(brain)[:3], [8, 7, 5])        # the bars that repeat at lags 1, 2 and 4
+        # the slate (generation 2) has no route: no recall port gains, and the heads at the coordinator still read
+        # the bars at their lags
+        brain, _ = check.bench_brain("split", 3)
+        common.born_lags(brain, [1, 2, 4, None], [0.1, 0.05, 0.075, 0.0], bias=1e4)
+        self.assertEqual(np.asarray(brain.recall.gains).size, 0)
+        self.assertEqual(attended(brain)[:3], [8, 7, 5])
         # the settings travel through compose, are recorded, and a saved copy keeps them
         self.configure(False)
         made, settings = common.compose(hierarchy.ROUTE_PRESET, backend="cpu", learned_code=48, modules=(16, 12, 16, 12, 10),
@@ -696,9 +787,10 @@ class ReservedShapeTests(unittest.TestCase):
                 for i, home in enumerate(homes):
                     self.assertLessEqual(chip(i), set(parts[home]))
 
+    @unittest.skipUnless(HAS_SID_POOL, NO_SID_POOL)
     def test_the_lead_only_shape_has_one_block_on_the_lead(self):
         import gate
-        sounds = json.loads((ROOT / "pool/pool_underground_sid.json").read_text())
+        sounds = json.loads(SID_POOL.read_text())
         book = timbre.sid_book(sounds)
         self.configure("sid")
         full = common.SLOTS
@@ -845,8 +937,9 @@ class ReservedShapeTests(unittest.TestCase):
         self.assertNotEqual(common.layout_key({**card, "tokens_per_layer": 65}),
                             common.layout_key({**card, "tokens_per_layer": 65, "reserve": False}))
 
+    @unittest.skipUnless(HAS_SID_POOL, NO_SID_POOL)
     def test_a_sid_block_holds_a_fitted_sid_sound(self):
-        sounds = json.loads((ROOT / "pool/pool_underground_sid.json").read_text())
+        sounds = json.loads(SID_POOL.read_text())
         self.assertEqual(len(timbre.SID_NAMES), 36)
         self.assertIsNone(timbre.sid_decode(timbre.sid_off()))
         for layer in sounds["layers"][1:]:
@@ -870,8 +963,10 @@ class ReservedShapeTests(unittest.TestCase):
         import layouts
 
         self.assertEqual(set(layouts.STAGE1) - set(layouts.LAYOUTS) - set(layouts.S1_LAYOUTS), set())
-        for name in ("split", "inst_reads", "trio"):
-            preset, over = layouts.layout(name)
+        # the narrow wirings of the wide layouts are the route layouts (the generation-2 slate took the names split and
+        # inst_reads for its own wirings)
+        for name, narrow in (("split", "split_route"), ("inst_reads", "inst_reads_route"), ("trio", "trio")):
+            preset, over = layouts.layout(narrow)
             wide, wide_over = layouts.layout(name + "_wide")
             self.assertEqual(hierarchy.PRESETS[wide], hierarchy.PRESETS[preset])
             self.assertEqual(wide_over, over)
