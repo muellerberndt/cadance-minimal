@@ -19,6 +19,11 @@ import timbre
 from recall_trace import RecallTrace
 
 ROOT = Path(__file__).resolve().parents[1]
+# A stubbed prediction_error's answer for the trainer's rollout readings (prediction_error(None, pieces, answers=...)):
+# the free-running continuations are scored on the brain's own bars, so they take no value from a test's queue.
+ROLLOUT = {"balanced": .3, "arrangement": .3, "stay": {"balanced": .1}, "change": {"balanced": .5}}
+# The whole-run tests stub the long free-play density reading (density_rollout: 64 bars of sampled and greedy play at
+# every full evaluation, 32 at every light reading) as None, the trainer's own value when no held-out passage fits.
 
 
 class ComposerTests(unittest.TestCase):
@@ -570,7 +575,9 @@ class ComposerTests(unittest.TestCase):
             return dict(selection_score=score, score=score, hold_score=.9, prompts_above_hold=0,
                         runs=[{}], prompt_protocol=2)
 
-        def prediction_error(brain, tracks, constant=None):
+        def prediction_error(brain, tracks, constant=None, answers=None):
+            if answers is not None:
+                return dict(ROLLOUT)
             if constant is not None:
                 return {"balanced": .95}          # always the commonest bar
             return {"balanced": next(errors) if brain is not None else .2}
@@ -591,7 +598,8 @@ class ComposerTests(unittest.TestCase):
             ]
             with (patch.object(sys, "argv", argv),
                   patch.object(train.composition, "compare", side_effect=compare),
-                  patch.object(train, "prediction_error", side_effect=prediction_error)):
+                  patch.object(train, "prediction_error", side_effect=prediction_error),
+                  patch.object(train, "density_rollout", return_value=None)):
                 train.main()
             best_prediction = Path(directory) / "audit_e002.npz"
             self.assertTrue(best_prediction.is_file())
@@ -620,7 +628,9 @@ class ComposerTests(unittest.TestCase):
 
         readings = []
 
-        def prediction_error(brain, tracks, constant=None):
+        def prediction_error(brain, tracks, constant=None, answers=None):
+            if answers is not None:
+                return dict(ROLLOUT)
             if constant is not None:
                 return {"balanced": .95}          # always the commonest bar
             return {"balanced": readings.pop(0) if brain is not None else .2}
@@ -645,7 +655,8 @@ class ComposerTests(unittest.TestCase):
                 readings[:] = [value for pair in errors for value in pair]      # training, then test
                 with (patch.object(sys, "argv", arguments),
                       patch.object(train.composition, "compare", side_effect=compare),
-                      patch.object(train, "prediction_error", side_effect=prediction_error)):
+                      patch.object(train, "prediction_error", side_effect=prediction_error),
+                      patch.object(train, "density_rollout", return_value=None)):
                     train.main()
                 self.assertEqual(readings, [])
                 return [json.loads(line) for line in curve.read_text().splitlines()]
@@ -677,7 +688,9 @@ class ComposerTests(unittest.TestCase):
 
         readings = []
 
-        def prediction_error(brain, tracks, constant=None):
+        def prediction_error(brain, tracks, constant=None, answers=None):
+            if answers is not None:
+                return dict(ROLLOUT)
             if constant is not None:
                 return {"balanced": .6}           # always the commonest bar
             return {"balanced": readings.pop(0) if brain is not None else .2}
@@ -699,6 +712,7 @@ class ComposerTests(unittest.TestCase):
             with (patch.object(sys, "argv", argv),
                   patch.object(train.composition, "compare", side_effect=compare),
                   patch.object(train, "prediction_error", side_effect=prediction_error),
+                  patch.object(train, "density_rollout", return_value=None),
                   patch.object(train.common, "hear", wraps=train.common.hear) as heard,
                   patch.object(train.common, "answer", wraps=train.common.answer) as answered):
                 train.main()
@@ -749,7 +763,9 @@ class ComposerTests(unittest.TestCase):
             return dict(selection_score=.5, score=.5, hold_score=.9, prompts_above_hold=0,
                         runs=[{}], prompt_protocol=2)
 
-        def prediction_error(brain, tracks, constant=None):
+        def prediction_error(brain, tracks, constant=None, answers=None):
+            if answers is not None:
+                return dict(ROLLOUT)
             return {"balanced": .6 if constant is not None else .2 if brain is None else .5}
 
         pool = ROOT / "pool/pool_underground.json"
@@ -768,7 +784,8 @@ class ComposerTests(unittest.TestCase):
                 ]
                 with (patch.object(sys, "argv", argv),
                       patch.object(train.composition, "compare", side_effect=compare),
-                      patch.object(train, "prediction_error", side_effect=prediction_error)):
+                      patch.object(train, "prediction_error", side_effect=prediction_error),
+                      patch.object(train, "density_rollout", return_value=None)):
                     train.main()
                 rows = [json.loads(line) for line in (Path(directory) / "metrics.jsonl").read_text().splitlines()]
                 latest = json.loads((Path(directory) / "marks_latest.json").read_text())
@@ -796,7 +813,9 @@ class ComposerTests(unittest.TestCase):
         message = "brain did not settle within 1024 steps and a rescue of as many: residual=0.02, tolerance=0.003; no action issued"
         counted = {"readings": 0}
 
-        def prediction_error(brain, tracks, constant=None):
+        def prediction_error(brain, tracks, constant=None, answers=None):
+            if answers is not None:
+                return dict(ROLLOUT)
             if constant is not None:
                 return {"balanced": .6}
             if brain is None:
@@ -821,7 +840,8 @@ class ComposerTests(unittest.TestCase):
                 ]
                 with (patch.object(sys, "argv", argv),
                       patch.object(train.composition, "compare", side_effect=compare),
-                      patch.object(train, "prediction_error", side_effect=prediction_error)):
+                      patch.object(train, "prediction_error", side_effect=prediction_error),
+                      patch.object(train, "density_rollout", return_value=None)):
                     train.main()
                 rows = [json.loads(line) for line in (Path(directory) / "metrics.jsonl").read_text().splitlines()]
             light = [row for row in rows if row.get("light")]
@@ -844,7 +864,9 @@ class ComposerTests(unittest.TestCase):
             return dict(selection_score=.5, score=.5, hold_score=.9, prompts_above_hold=0,
                         runs=[{}], prompt_protocol=2)
 
-        def prediction_error(brain, tracks, constant=None):
+        def prediction_error(brain, tracks, constant=None, answers=None):
+            if answers is not None:
+                return dict(ROLLOUT)
             return {"balanced": .6 if constant is not None else .2 if brain is None else .5}
 
         pool = ROOT / "pool/pool_underground.json"
@@ -864,6 +886,7 @@ class ComposerTests(unittest.TestCase):
                 with (patch.object(sys, "argv", argv),
                       patch.object(train.composition, "compare", side_effect=compare),
                       patch.object(train, "prediction_error", side_effect=prediction_error),
+                      patch.object(train, "density_rollout", return_value=None),
                       patch.object(train.common, "sample_slots", wraps=train.common.sample_slots) as sampled):
                     train.main()
                 rows = [json.loads(line) for line in (Path(directory) / "metrics.jsonl").read_text().splitlines()]
@@ -888,7 +911,9 @@ class ComposerTests(unittest.TestCase):
 
         counted = {"readings": 0, "heard": 0}
 
-        def prediction_error(brain, tracks, constant=None):
+        def prediction_error(brain, tracks, constant=None, answers=None):
+            if answers is not None:
+                return dict(ROLLOUT)
             if constant is not None:
                 return {"balanced": .6}
             if brain is None:
@@ -901,9 +926,15 @@ class ComposerTests(unittest.TestCase):
         hear_first = common.hear
 
         def hear(brain, x):
-            counted["heard"] += 1
-            if counted["heard"] == 8:             # the first lesson of the second pass (a pass has seven)
-                raise RuntimeError(message)
+            # lessons hear in the trainer's own loop; the readings' free-running continuations hear through
+            # common.answer and are not counted (the caller is the first frame outside unittest.mock)
+            caller = sys._getframe(1)
+            while caller.f_code.co_filename.endswith("mock.py"):
+                caller = caller.f_back
+            if caller.f_code.co_name == "main":
+                counted["heard"] += 1
+                if counted["heard"] == 8:         # the first lesson of the second pass (a pass has seven)
+                    raise RuntimeError(message)
             return hear_first(brain, x)
 
         pool = ROOT / "pool/pool_underground.json"
@@ -922,6 +953,7 @@ class ComposerTests(unittest.TestCase):
                 with (patch.object(sys, "argv", argv),
                       patch.object(train.composition, "compare", side_effect=compare),
                       patch.object(train, "prediction_error", side_effect=prediction_error),
+                      patch.object(train, "density_rollout", return_value=None),
                       patch.object(train.common, "hear", side_effect=hear)):
                     train.main()
                 rows = [json.loads(line) for line in (Path(directory) / "metrics.jsonl").read_text().splitlines()]

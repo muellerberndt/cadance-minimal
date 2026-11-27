@@ -78,8 +78,8 @@ It needs a score file and a pool file in the formats `brain/common.py` reads (`l
 this repository does not ship; [docs/score.md](docs/score.md) gives both formats, and
 `python -m pipeline.toy_score OUT --check` writes a small synthetic pair that the loader accepts. The player finds a run's checkpoints under `quality/composer/<name>/`.
 
-Of the 47 tests in `brain/test_composer.py`, 40 pass on Cadence 0.104.1; seven that drive a whole
-training run are behind the trainer's last changes.
+The 47 tests in `brain/test_composer.py` pass on Cadence 0.104.1. The ones that drive a whole
+training run replace the long free-play readings with a fixed answer, so the file runs in minutes.
 
 Settings of one computer stay out of the code: the environment, or `site/local.json` (not in the
 repository). `CADANCE_BUCKET` names where training runs keep their checkpoints; without it the
