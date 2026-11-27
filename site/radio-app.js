@@ -28,7 +28,7 @@ const LAW = {        // knob position 0..1 -> value, as on the mixer
 const calm = () => !!store.get('calm', false) || matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 // ---------- audio and the bar clock ----------
-let ctx = null, master = null, vol = null, bpm = 122.14, dj = null, djText = '', note = '', starting = null, trackNo = 0;
+let ctx = null, master = null, vol = null, bpm = 122.14, dj = null, note = '', starting = null, trackNo = 0;
 const latency = () => (ctx ? (ctx.outputLatency || 0) + (ctx.baseLatency || 0) : 0);
 const later = (t, fn) => { const ms = Math.max(0, (t + latency() - (ctx ? ctx.currentTime : 0)) * 1000); ms > 4 ? setTimeout(fn, ms) : fn(); };
 const clock = { t0: 0, next: 0, bar: 0, step: -1, stepAt: 0, timer: null };
@@ -307,8 +307,10 @@ requestAnimationFrame(frame);
 function say(text) { note = text; paintReadout(); setTimeout(() => { if (note === text) { note = ''; paintReadout(); } }, 12000); }
 dj = new AutoDJ({ chans: decks, ctx: () => ctx, ensureAudio, bpm: () => bpm, userBpm: () => null,
   setBpm: (v) => { bpm = +v || bpm; for (const d of decks) if (d.fx) d.fx.setTempo(bpm); if (dj) dj.retime(); },
-  status: say, paint: () => paintReadout(), readout: (text) => { djText = text; }, brainName: () => 'radio' },
-{ section: clamp(+q.get('section') || 32, 4, 32) });
+  status: say, paint: () => paintReadout(), readout: () => {}, brainName: () => 'radio' },
+// the radio's blend: the second track starts at bar 32, a long blend takes 64 bars with the bass swap in its middle,
+// a track lives 128 to 160 bars, a primary plays alone for one section at most (autodj.js, Planner)
+{ section: clamp(+q.get('section') || 32, 4, 32), blend: { swaps: [64], swapAt: 32, solo: [1, 1, 2] } });
 dj.debug = q.has('djdebug');
 window.__radioApp = { dj, decks, viz, clock, ctx: () => ctx, starts: [], setView };
 
@@ -319,19 +321,31 @@ function plainBrain(ck) {
   const run = String(ck || '').replace(/_(e\d+(b\d+)?|l\d{8}|latest)$/, '');
   return PLAIN[run] || run.replace(/^slate_/, '').replace(/_/g, ' ') || 'a Cadance brain';
 }
-const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 let playingNow = false;
+// what the Auto DJ does, in one short line: a track coming in, one leaving, or the primary alone until the next
+function djLine() {
+  const P = dj.planner, c = dj.clock;
+  if (!dj.on || !P || !c) return '';
+  const G = c.G, no = (i) => (decks[i] && decks[i].track ? `track ${decks[i].track.no}` : 'the next track');
+  const kind = (t) => t.name.split(/[,(]/)[0].trim();
+  const coming = P.active.find((t) => G < t.swap), leaving = P.active.find((t) => G >= t.swap && G < t.end);
+  if (coming) return `mixing: ${no(coming.in)} comes in (${kind(coming)}), the bass changes decks in ${coming.swap - G} bars`;
+  if (leaving) return `mixing: ${no(leaving.out)} leaves in ${leaving.end - G} bars`;
+  if (P.nextStart != null && P.nextStart > G) return `${no(P.primary)} alone, the next track comes in ${P.nextStart - G} bars`;
+  return dj.say || '';
+}
 function paintReadout() {
   const st = $('status');
   st.textContent = R.note + (R.error ? ` (${R.error})` : '');
   st.toggleAttribute('data-live', !!R.live);
   const f = front();
   let what = '';
-  if (f && f.track) what = `${plainBrain(f.track.checkpoint)} · track ${f.track.no} · ${mmss(Math.max(0, (f.track.bars.length - f.trackAt) * barLen()))} left`;
+  if (f && f.track) what = `${plainBrain(f.track.checkpoint)} · track ${f.track.no}`;
   else if (playingNow && !R.tracks) what = 'no tracks yet';
   else if (playingNow) what = 'the first track is loading';
   if (note) what = what ? `${what} · ${note}` : note;
   $('nowPlaying').textContent = what;
+  $('djLine').textContent = playingNow ? djLine() : '';
   $('playB').innerHTML = playingNow && ctx && ctx.state === 'running' ? '&#10074;&#10074;' : '&#9654;';
   $('playB').setAttribute('aria-label', playingNow ? 'pause' : 'play');
 }

@@ -1,7 +1,7 @@
 // The Auto DJ's planner without audio: lanes, jumps and a long simulated set.
 //   node site/test_autodj.mjs
 import assert from 'node:assert/strict';
-import { Planner, Transitions, AutoDJ, at, jumps, soft, mulberry, KEYS, NEUTRAL, TRANSITIONS, SECTION } from './autodj.js';
+import { Planner, Transitions, AutoDJ, at, jumps, soft, squeeze, mulberry, KEYS, NEUTRAL, TRANSITIONS, SECTION } from './autodj.js';
 
 // lanes
 const lane = [[0, 0], [16, 0.6], [32, 0.6], [32, 0.8], [48, 0]];
@@ -220,5 +220,39 @@ for (const shelf of [false, true]) {
   assert.ok(texts.some((t) => (shelf ? /the brain is late \((\d+ of \d+ bars|not started)\): an earlier track by split_s1_s1lag/ : /the brain is late \((\d+ of \d+ bars|not started)\): no earlier track, a transition piece/).test(t)), 'the readout says why a stand-in comes');
   if (!shelf) assert.ok(texts.some((t) => /transition: repertoire piece "piece \d+" \(4 stars\) while split_s1_s1lag composes the next track · \d+ of \d+ bars/.test(t)), 'the readout says the piece and the composing');
   console.log(`page side, ${shelf ? 'a shelf' : 'no shelf'}: ${kinds.join(' ')}; e.g. "${texts.find((t) => /next: .* · /.test(t))}"`);
+}
+// the radio's blend (radio-app.js): the second track starts at bar 32, a track lives about 128 to 160 bars, two
+// tracks sound together most of the time, a primary plays alone for one section at most, never three decks
+const RADIO = { swaps: [64], swapAt: 32, solo: [1, 1, 2] };
+for (const name of ['tops', 'lowpass', 'mids', 'swap3']) for (let seed = 1; seed <= 20; seed++) {
+  const t = squeeze(TRANSITIONS[name](mulberry(seed), [64]), 0.5);
+  assert.equal(t.swap, 32); assert.ok(t.len <= 64 && t.len - t.swap >= 24, `${name} squeezed: ${t.len}`);      // swap3: 56
+  for (const side of [t.in, t.out]) for (const pts of Object.values(side)) for (let i = 1; i < pts.length; i++) assert.ok(pts[i][0] >= pts[i - 1][0], `${name} squeezed: order`);
+}
+for (const [SEC, seed] of [[32, 1], [32, 2], [32, 3], [32, 4], [16, 5], [4, 6]]) {
+  const P = new Planner({ rand: mulberry(seed), section: SEC, blend: RADIO }), k = SEC / SECTION;
+  P.bassShare = (a, b) => (seed === 3 ? 0.3 : 1);                 // seed 3: an old track with little bass (the bass kind)
+  P.begin(0);
+  const start = [0, null, null], lives = [], entries = [];
+  let two = 0, alone = 0, run = 0, longest = 0, G;
+  for (G = 0; G < 4000; G++) {
+    for (const c of P.tick(G, () => true)) {
+      if (c.cmd === 'cue') { start[c.deck] = G + 1; entries.push(G + 1); assert.equal((G + 1) % SEC, 0, 'a track starts on a section line'); }
+      if (c.cmd === 'primary') assert.equal(G % SEC, 0, 'the bass changes decks on a section line');
+      if (c.cmd === 'stop') { lives.push(G - start[c.deck]); start[c.deck] = null; }
+    }
+    const on = start.filter((x) => x != null && x <= G).length;
+    assert.ok(on <= 2, `never three decks (bar ${G})`);
+    if (on === 2) { two++; run = 0; } else { alone++; run++; longest = Math.max(longest, run); }
+  }
+  assert.equal(entries[0], 32 * k, 'the second track starts after one section');
+  const body = lives.slice(1);
+  assert.ok(lives[0] <= 96 * k + 32 * k, `the first track leaves early: ${lives[0]}`);
+  for (const l of body) assert.ok(l >= 104 * k && l <= 192 * k, `a track lives 104 to 192 bars (x ${k}): ${l}`);
+  const mean = body.reduce((a, b) => a + b, 0) / body.length;
+  assert.ok(mean >= 120 * k && mean <= 168 * k, `on average about 128 to 160 bars: ${mean}`);
+  assert.ok(longest <= 32 * k, `a primary alone for one section at most: ${longest}`);
+  assert.ok(two / (two + alone) > 0.7, `two tracks most of the time: ${two} of ${two + alone}`);
+  console.log(`radio blend, sections of ${SEC}, seed ${seed}: ${entries.length} tracks, first at bar ${entries[0]}, a track lives ${Math.min(...body)} to ${Math.max(...body)} bars (mean ${mean.toFixed(0)}), two tracks in ${(100 * two / (two + alone)).toFixed(0)}% of the bars, alone at most ${longest} bars`);
 }
 console.log('auto dj planner: all checks passed');
