@@ -7,13 +7,15 @@
 //
 //   HEARS   five blocks of sensory neurons: the bar just heard and the bars 2, 4, 8 and 16 back, lit one neuron
 //           per slot exactly as those bars' one-hot observation was (kit, voices, levels, drum steps, line steps)
-//   PLANS   the learned code, each instrument's plan and detail regions, the coordinator, the upper coordinator:
+//   PLANS   the learned code, each instrument's plan and detail regions, the association cortex (the model's
+//           coordinator), the phrase context above it, the prefrontal region:
 //           every neuron at its recorded value, all of them disturbed at the bar line and relaxing together
 //   PLAYS   the motor neurons laid out as the bar they write, and over them the bar as an instrument panel:
 //           three drum rows (kick, snare, hats) with a pad per hit that flashes on its step, an accent larger and
 //           brighter, and three lines (bass, lead, air) with a bar per note, as long as the note and as high as
 //           its pitch class, under a playhead
 //   MEMORY  a ring of the remembered bars; the recall heads' beams reach the cells they read in this bar
+// On the canvas HEARS, PLANS and PLAYS carry a second line: auditory cortex, prefrontal cortex, motor cortex.
 //
 // The loop: each mark leaves the hands at its strike, travels under the brain and lands at the bar line in the same
 // cell of the ear's first block, so the bar just played is what the ear's first block holds in the next bar; the
@@ -567,7 +569,7 @@ export class BrainStage {
     const gl = this.gl, c = document.createElement('canvas'); c.width = 1024; c.height = 512;
     const g = c.getContext('2d'); this.atlas = {};
     const big = ['HEARS', 'PLANS', 'PLAYS', 'MEMORY'];
-    const small = ['the code', 'coordinator', 'upper coordinator', 'prefrontal', 'beat plan', 'bass plan', 'lead plan', 'air plan',
+    const small = ['the code', 'association cortex', 'phrase context', 'auditory cortex', 'prefrontal cortex', 'motor cortex', 'prefrontal', 'beat plan', 'bass plan', 'lead plan', 'air plan',
       'rhythm plan', 'melody plan', 'beat detail', 'bass detail', 'lead detail', 'air detail', 'rhythm detail', 'melody detail', 'plan', 'detail',
       'beat', 'bass', 'lead', 'air', 'rhythm', 'melody', 'kick', 'snare', 'hats'];
     let x = 4, y = 4, rowH = 0;
@@ -816,10 +818,13 @@ export class BrainStage {
 
   _labelsFor() {
     const g = this.geo, c = g.centre, H = this.HEAR, Pl = this.PLAY, out = [], rowY = this.rowY;
-    const big = (t, p) => out.push({ t, p, big: true }), small = (t, p, side, more) => out.push(Object.assign({ t, p, side: side || 0, lane: 0 }, more || {}));
-    big('HEARS', [H.x + H.w * 0.3, -3.08, 0.4]); big('PLANS', [0.2, -3.08, 0.4]); big('PLAYS', [Pl.x + Pl.w * 0.5, -3.08, 0.4]);
-    for (const l of out) l.ty = -2.86;                 // upright, the captions stand closer to the brain
-    if (this.ringGeo.cap) big('MEMORY', [this.ringGeo.c[0], this.ringGeo.c[1] + 0.78, 0]);
+    const big = (t, p, more) => out.push(Object.assign({ t, p, big: true }, more || {})), small = (t, p, side, more) => out.push(Object.assign({ t, p, side: side || 0, lane: 0 }, more || {}));
+    // the three captions stand close under their own part of the brain (the middle one under the way the played bar
+    // takes back to the ear), each with its cortex named in a second, smaller line; upright they stand in a column at the side
+    big('HEARS', [H.x + H.w * 0.3, -2.3, 0.4], { sub: 'auditory cortex' }); big('PLANS', [0.2, -2.68, 0.4], { sub: 'prefrontal cortex' }); big('PLAYS', [Pl.x + Pl.w * 0.5, -2.3, 0.4], { sub: 'motor cortex' });
+    for (const l of out) l.ty = -2.86;
+    // the memory's caption stands inside its ring (upright, where the ring is a narrow oval at the side, above it as before)
+    if (this.ringGeo.cap) big('MEMORY', [this.ringGeo.c[0], this.ringGeo.c[1], 0], { tp: [this.ringGeo.c[0], this.ringGeo.c[1] + 0.78, 0] });
     // first come, first placed: a label that would cover an earlier one is left out
     if (this.exact) {
       const rows = [['kick', 0.9, 1, 0], ['snare', 0.825, 1, 1.05], ['hats', 0.75, 1, 0], ['bass', 0.58, 2, 0], ['lead', 0.38, 3, 0], ['air', 0.18, 4, 0]];
@@ -827,8 +832,8 @@ export class BrainStage {
     }
     if (c.code) small('the code', [c.code[0], c.code[1] - 0.9, 0]);
     if (c.prefrontal) small('prefrontal', [c.prefrontal[0], c.prefrontal[1] + 0.36, 0]);
-    if (c.association) small('coordinator', [c.association[0] - 0.32, c.association[1] + 0.06, 0], -1);
-    if (c.phrase_context) small('upper coordinator', [c.phrase_context[0] + 0.32, c.phrase_context[1] - 0.02, 0], 1);
+    if (c.association) small('association cortex', [c.association[0] - 0.32, c.association[1] + 0.06, 0], -1);
+    if (c.phrase_context) small('phrase context', [c.phrase_context[0] + 0.32, c.phrase_context[1] - 0.02, 0], 1);
     let lowest = null;
     g.lanes.forEach((k, i) => {
       const lane = g.laneIdx[i], pl = c[k + '_plan'], de = c[k + '_detail'];
@@ -1176,11 +1181,12 @@ export class BrainStage {
     const gl = this.gl, p = this.prog.label, D = this.labelData, W = this.canvas.width, H = this.canvas.height;
     let n = 0; const tall = W < H * 0.95, unit = Math.max(0.55, Math.min(1.25, tall ? W / 880 : Math.min(W, H * 1.7) / 1500));
     const placed = [];                                // the labels drawn so far: a later one that would cover one of them is left out
+    const subs = [];                                  // the captions' second lines: under a caption that was drawn, where they fit whole
     const batch = (big, lane) => {
       n = 0;
       for (const l of this.labelList) {
         if (!!l.big !== big || (!big && l.lane !== lane) || (l.tall && !tall) || (l.wide && tall)) continue; const a = this.atlas[l.t]; if (!a) continue;
-        const x = l.p[0], y = tall && l.ty !== undefined ? l.ty : l.p[1], z = l.p[2];
+        const at = tall && l.tp ? l.tp : l.p, x = at[0], y = tall && l.ty !== undefined ? l.ty : at[1], z = at[2];
         const cw = mvp[3] * x + mvp[7] * y + mvp[11] * z + mvp[15]; if (cw <= 0.1) continue;
         const cx = (mvp[0] * x + mvp[4] * y + mvp[8] * z + mvp[12]) / cw, cy = (mvp[1] * x + mvp[5] * y + mvp[9] * z + mvp[13]) / cw;
         const k = unit * (big ? 0.62 : 0.52), w = (a.w * k) / W * 2, h = (a.h * k) / H * 2;
@@ -1192,6 +1198,14 @@ export class BrainStage {
         if (n + 24 > D.length) break;
         placed.push([x0, y0, x0 + w, y0 + h]);
         D.set([x0, y0, a.u0, a.v1, x0 + w, y0, a.u1, a.v1, x0, y0 + h, a.u0, a.v0, x0, y0 + h, a.u0, a.v0, x0 + w, y0, a.u1, a.v1, x0 + w, y0 + h, a.u1, a.v0], n); n += 24;
+        const s = l.sub ? this.atlas[l.sub] : null;
+        if (s) {                                      // centred under its caption; upright, flush with its left edge
+          const k2 = unit * 0.5, w2 = (s.w * k2) / W * 2, h2 = (s.h * k2) / H * 2, sx = tall ? x0 : cx - w2 / 2, sy = y0 - h2 * 0.9;
+          if (sx >= -0.985 && sx + w2 <= 0.985 && sy >= -0.985 && !placed.some((q) => sx < q[2] && sx + w2 > q[0] && sy + h2 * 0.12 < q[3] && sy + h2 * 0.8 > q[1])) {
+            placed.push([sx, sy, sx + w2, sy + h2]);
+            subs.push(sx, sy, s.u0, s.v1, sx + w2, sy, s.u1, s.v1, sx, sy + h2, s.u0, s.v0, sx, sy + h2, s.u0, s.v0, sx + w2, sy, s.u1, s.v1, sx + w2, sy + h2, s.u1, s.v0);
+          }
+        }
       }
       if (!n) return;
       gl.bindBuffer(gl.ARRAY_BUFFER, this.buf.label); gl.bufferSubData(gl.ARRAY_BUFFER, 0, D.subarray(0, n));
@@ -1199,6 +1213,11 @@ export class BrainStage {
       gl.uniform1f(p.u.uA, (big ? 0.9 : lane ? 0.95 : 0.6) * alpha);
       gl.uniform3fv(p.u.uCol, big ? [0.788, 0.984, 0.984] : LANE_TINT[lane]);
       gl.drawArrays(gl.TRIANGLES, 0, n / 4);
+      if (big && subs.length) {
+        D.set(subs, 0); gl.bufferSubData(gl.ARRAY_BUFFER, 0, D.subarray(0, subs.length));
+        gl.uniform1f(p.u.uA, 0.62 * alpha);
+        gl.drawArrays(gl.TRIANGLES, 0, subs.length / 4);
+      }
     };
     gl.useProgram(p.p); gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE);
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.tex.label); gl.uniform1i(p.u.uTex, 0);
@@ -1221,7 +1240,7 @@ export class BrainStage {
       g.fillStyle = `rgba(74,241,242,${m})`; g.beginPath(); g.arc(X(p[0]), Y(p[1]), 6 + 14 * m, 0, 7); g.fill();
     }
     g.fillStyle = '#c9fbfb'; g.font = `12px ${MONO}`; g.textAlign = 'center';
-    for (const l of this.labelList || []) if (this.labels && !l.tall) g.fillText(l.t, X(l.p[0]), Y(l.p[1]));
+    for (const l of this.labelList || []) if (this.labels && !l.tall) { g.fillText(l.t, X(l.p[0]), Y(l.p[1])); if (l.sub) g.fillText(l.sub, X(l.p[0]), Y(l.p[1]) + 15); }
   }
 }
 
