@@ -8,7 +8,7 @@
 // state (radio or live) is in the settings. For tests, window.__radioApp.state() reads it all.
 import { AutoDJ } from './autodj.js';
 import { BrainStage } from './brainstage.js';
-import { BrainViz, MODE_GROUPS } from './brainviz.js';
+import { BrainViz } from './brainviz.js';
 import { Devices } from './devices.js';
 import { FxUnit } from './djfx.js';
 import { MixerStage } from './mixerstage.js';
@@ -57,6 +57,7 @@ function ensureAudio() {
     const an = c.createAnalyser(); an.fftSize = 2048; master.connect(an); hero.setAudio(an);
     Object.assign(window.__radioApp, { master, analyser: an });          // for a view of the mix (the mixer stage)
     mixAudio();
+    if (screen) screen.setAudio(an);
     for (const d of decks) d.build();
     clock.t0 = clock.next = c.currentTime + 0.3; clock.bar = 0;
     clock.timer = setInterval(tick, 25);
@@ -321,6 +322,20 @@ async function balanceTo(node) {
   } catch (e) { say(`balance: ${e.message}: the voices play as written`); }
 }
 
+// the OPH screen (screenstage.js), built when its view first opens and fed as the brain stage is: the front deck's
+// bars, the clock, the master
+let screen = null, screenTried = false;
+function screenStage() {
+  if (screenTried) return screen;
+  screenTried = true;
+  if (!ScreenStage) return null;
+  const s = new ScreenStage($('scrv'), { calm: calm() });
+  if (!s.ok) { say('OPH screen: no WebGL'); return null; }
+  screen = s;
+  if (window.__radioApp.analyser) screen.setAudio(window.__radioApp.analyser);
+  return screen;
+}
+
 // the mixer stage (mixerstage.js), built when the DJ view first shows (its shaders take about 130 ms): the decks'
 // tracks and waves, their meters, the master, the clock and a reader of the planner's state; without WebGL the DJ
 // view is the plain canvas below
@@ -369,16 +384,22 @@ function front() {                                              // the primary d
 // above, given the bars as they sound on the deck in front; with VJ on, its scene changes on the Auto DJ's section
 // lines; without a canvas context it is brainviz's 3D brain. devices: the drum machine and the three synth voices of
 // the track in front (devices.js), with the sounds of the pool the track names; a deck that blends in as a small strip.
-// MRI: brainviz's MRI, lit by the recorded view. DJ: the Auto DJ's three decks, read-only, as the autopilot moves them.
-// more: brainviz's other modes.
-const viz = new BrainViz($('viz'), { captions: false });
+// MRI and connectome: brainviz's, lit by the recorded view. DJ: the Auto DJ's three decks, as the autopilot moves them.
+// Amiga: brainviz's demo-scene mode 'cadance', its scroller with the claim only. The visuals menu sorts them into
+// brain, instruments and art; 'm' steps through it.
+const SCROLL = 'CADANCE :: A HUMAN-LIKE BRAIN THAT HEARS AND COMPOSES MINIMAL TECHNO :: BUILD REAL-TIME BRAINS THAT WORK LIKE HUMAN BRAINS :: PRAGMA RESEARCH :: ';
+const viz = new BrainViz($('viz'), { captions: false, scroller: SCROLL });
 const hero = new BrainStage($('hero'), { calm: calm() });
 const HERO = hero.ok;
 const devv = new Devices($('devCanvas'));
 const djc = $('djv'), dg = djc.getContext('2d');
-const MAIN = [['brain', 'brain'], ['devices', 'devices'], ['mri', 'MRI'], ['dj', 'DJ']];
-const known = (v) => MAIN.some(([x]) => x === v) || String(v).startsWith('m:');
-let view = known(store.get('view', 'brain')) ? store.get('view', 'brain') : 'brain';
+// the views in the menu's order; the OPH screen (screenstage.js) once its module is in the build and it can draw
+const VIEWS = ['brain', 'mri', 'connectome', 'devices', 'dj', 'amiga', 'screen'];
+const VIZ_MODE = { mri: 'mri', connectome: 'connectome', amiga: 'cadance' };
+const ScreenStage = null;                        // the OPH screen's module, mounted with screenstage.js
+const shown = () => VIEWS.filter((v) => v !== 'screen' || (ScreenStage && (!screenTried || screen)));
+const OLD = { 'm:connectome': 'connectome', 'm:cadance': 'amiga' };            // a returning visitor's view from before the menu
+let view = (() => { const v = store.get('view', 'brain'); return OLD[v] || (VIEWS.includes(v) && v !== 'screen' ? v : 'brain'); })();
 let vizTrack = null, heroTrack = null, devTrack = null;
 const vizHistory = [];
 fetch('brain3d/brain.b3d').then((r) => (r.ok ? r.arrayBuffer() : null)).then((b) => { if (b) hero.setBrain(b); }).catch(() => {});
@@ -399,6 +420,7 @@ function frontBar(d) {                                          // a deck began 
   }
   hero.setClock({ ctx, bpm, barZeroTime: d.lineAt - i * barLen() });
   hero.setBar(i, nb);
+  if (screen) { screen.setClock({ ctx, bpm, barZeroTime: d.lineAt - i * barLen() }); screen.setBar(i, nb); }
   devBar(d, tr, nb, i > 0 ? tr.bars[barOf(n, i - 1)] : nb);
 }
 let devNote = '';
@@ -506,28 +528,37 @@ function knob(g, x, y, r, v, col, bip, D) {
   g.lineCap = 'butt';
 }
 
-// the view control: icons for brain, devices, MRI, DJ; "more" steps through brainviz's other modes
-const MORE = ['compact', 'connectome', 'storm', ...MODE_GROUPS.brain.filter((x) => !['connectome', 'storm', 'compact', 'mri'].includes(x)), ...MODE_GROUPS.demo].map((x) => `m:${x}`);
-const ORDER = [...MAIN.map(([v]) => v), ...MORE];
-for (const b of document.querySelectorAll('#views [data-view]')) {
-  b.onclick = () => { const v = b.dataset.view; setView(v === 'more' ? MORE[(MORE.indexOf(view) + 1) % MORE.length] : v); b.blur(); };
-}
+// the visuals menu: one button on the bar opens it; an entry sets the view and closes it
+const visuals = $('visuals'), visB = $('visB');
+function showMenu(on) { visuals.hidden = !on; visB.setAttribute('aria-expanded', String(on)); }
+visB.onclick = (e) => { e.stopPropagation(); const on = visuals.hidden; closePanels(); showMenu(on); visB.blur(); };
+for (const b of visuals.querySelectorAll('[data-view]')) b.onclick = () => { setView(b.dataset.view); showMenu(false); };
+addEventListener('pointerdown', (e) => { if (!visuals.hidden && !visuals.contains(e.target) && e.target !== visB && !visB.contains(e.target)) showMenu(false); });
 function setView(v) {
-  if (!known(v)) v = 'brain';
+  if (v === 'screen' && !screenStage()) v = 'brain';           // its module draws nothing here (no WebGL): the brain instead
+  if (!shown().includes(v)) v = 'brain';
   view = v; store.set('view', v);
-  const heroOn = v === 'brain' && HERO, vizOn = !heroOn && (v === 'brain' || v === 'mri' || v.startsWith('m:'));
-  if (v === 'brain' && !HERO) viz.setMode('compact');
-  else if (v === 'mri') viz.setMode('mri');
-  else if (v.startsWith('m:')) viz.setMode(v.slice(2));
-  const mixOn = v === 'dj' && !!mixerStage();            // one WebGL view draws at a time
+  const heroOn = v === 'brain' && HERO, vizOn = (v === 'brain' && !HERO) || !!VIZ_MODE[v];
+  if (vizOn) viz.setMode(VIZ_MODE[v] || 'compact');
+  const mixOn = v === 'dj' && !!mixerStage(), scrOn = v === 'screen' && !!screenStage();      // one WebGL view draws at a time
   $('hero').hidden = !heroOn; $('viz').hidden = !vizOn; $('devices').hidden = v !== 'devices'; djc.hidden = v !== 'dj' || mixOn; $('mixv').hidden = !mixOn;
-  document.body.dataset.view = v.startsWith('m:') ? 'more' : v;
+  if ($('scrv')) $('scrv').hidden = !scrOn;
+  document.body.dataset.view = v;
+  if (vizOn) fitViz(v === 'amiga');                     // once it shows: a hidden canvas measures nothing
   if (heroOn) { fitStage('hero', hero); hero.start(); } else hero.stop();
   if (mixOn) { fitStage('mixv', mixer); mixer.start(); } else if (mixer) mixer.stop();
+  if (scrOn) { fitStage('scrv', screen); screen.start(); } else if (screen) screen.stop();
   if (!vizOn && viz.gl3) viz.gl3.hide();
-  for (const b of document.querySelectorAll('#views [data-view]')) b.classList.toggle('on', b.dataset.view === (v.startsWith('m:') ? 'more' : v));
+  for (const b of visuals.querySelectorAll('[data-view]')) { b.hidden = !shown().includes(b.dataset.view); b.setAttribute('aria-current', String(b.dataset.view === v)); }
 }
 setView(view);
+// the Amiga screen between the wordmark with its claim and the bar (its logo stands at the top, its scroller at the
+// bottom); brainviz's other modes on the whole page
+function fitViz(between) {
+  const top = between ? Math.round(document.querySelector('.brand').getBoundingClientRect().bottom + 6) : 0;
+  Object.assign($('viz').style, { top: `${top}px`, height: between ? `calc(100% - ${top + $('bar').offsetHeight}px)` : '' });
+  viz.resize();
+}
 // a stage ends above the controls, so what it draws at the bottom stays in view; the mixer also starts below the
 // wordmark and the claim (its decks' controls stand at the left edge)
 function fitStage(id, stage) {
@@ -535,7 +566,13 @@ function fitStage(id, stage) {
   Object.assign($(id).style, { top: `${top}px`, height: `calc(100% - ${top + $('bar').offsetHeight}px)` });
   stage.resize();
 }
-addEventListener('resize', () => { if (!$('hero').hidden) fitStage('hero', hero); if (mixer && !$('mixv').hidden) fitStage('mixv', mixer); });
+function fitShown() {
+  if (view === 'amiga') fitViz(true);
+  if (!$('hero').hidden) fitStage('hero', hero);
+  if (mixer && !$('mixv').hidden) fitStage('mixv', mixer);
+  if (screen && !$('scrv').hidden) fitStage('scrv', screen);
+}
+addEventListener('resize', fitShown);
 
 function frame() {
   requestAnimationFrame(frame);
@@ -544,7 +581,7 @@ function frame() {
   const phase = playing && clock.step >= 0 ? Math.min(0.999, (clock.step + Math.min(1, (performance.now() - clock.stepAt) / ms)) / 16) : 0;
   if (view === 'devices') { devv.setSecond(secondDeck()); devv.draw(phase); }
   else if (view === 'dj') { if (!mixer) drawDJ(); }
-  else if (!(view === 'brain' && HERO)) viz.frame(phase, ms);
+  else if ((view === 'brain' && !HERO) || VIZ_MODE[view]) viz.frame(phase, ms);
 }
 requestAnimationFrame(frame);
 
@@ -630,11 +667,11 @@ volume.value = store.get('volume', 0.8);
 volume.oninput = () => { store.set('volume', +volume.value); if (vol) vol.gain.setTargetAtTime(+volume.value, ctx.currentTime, 0.02); };
 const full = () => { if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen?.().catch(() => {}); };
 $('fullB').onclick = full;
-document.addEventListener('fullscreenchange', () => setTimeout(() => { viz.resize(); if (!$('hero').hidden) fitStage('hero', hero); if (mixer && !$('mixv').hidden) fitStage('mixv', mixer); }, 60));
+document.addEventListener('fullscreenchange', () => setTimeout(() => { viz.resize(); fitShown(); }, 60));
 addEventListener('keydown', (e) => {
   if (/INPUT|SELECT|TEXTAREA/.test(e.target.tagName) || e.metaKey || e.ctrlKey || e.altKey) return;
   if (e.key === 'f') full();
-  else if (e.key === 'm') setView(ORDER[(ORDER.indexOf(view) + 1) % ORDER.length]);
+  else if (e.key === 'm') { const o = shown(); setView(o[(o.indexOf(view) + 1) % o.length]); }
   else if (e.key === 'n') nextTrack();
   else if (e.key === ' ') { e.preventDefault(); togglePlay(); }
   else if (e.key === 'Escape') { closePanels(); }
@@ -666,10 +703,9 @@ function openSettings() {
 function paintCalm() {
   document.querySelector('.scan').hidden = calm(); hero.setCalm(calm()); if (calm()) hero.setScene('wired');
   if (mixer) mixer.setCalm(calm());
-  $('calmB').setAttribute('aria-pressed', String(calm()));
+  if (screen) screen.setCalm(calm());
   if ($('calmT')) $('calmT').checked = !!store.get('calm', false);
 }
-$('calmB').onclick = () => { store.set('calm', !store.get('calm', false)); paintCalm(); $('calmB').blur(); };
 paintCalm();
 $('gearB').onclick = () => (settings.hidden ? openSettings() : closePanels());
 $('apiClose').onclick = closePanels;
@@ -719,7 +755,7 @@ function showWhat() {
   $('whatTour').onclick = () => showTour(0);
 }
 const seen = () => store.set('tour', true);
-function closePanels() { tour.hidden = true; settings.hidden = true; for (const r of rings) r.remove(); rings = []; }
+function closePanels() { tour.hidden = true; settings.hidden = true; showMenu(false); for (const r of rings) r.remove(); rings = []; }
 $('tourNext').onclick = () => showTour(tourAt + 1);
 $('tourBack').onclick = () => showTour(tourAt - 1);
 $('tourClose').onclick = () => { seen(); closePanels(); };

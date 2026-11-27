@@ -1327,6 +1327,7 @@ export class BrainViz {
   constructor(canvas, opts = {}) {
     this.cv = canvas; this.g = canvas.getContext('2d'); this.compact = !!opts.compact;
     this.captions = opts.captions !== false;     // false: the pictures alone (the radio page)
+    this.scroller = opts.scroller || null;       // the demo scroller's text, round and round, in place of the bar's news (the radio page)
     this.mode = 0; this.layout = null; this.view = null; this.arousal = null; this.checkpoint = null;
     this.regions = new Map();          // name -> {disp, target, mean, dmean, max}
     this.heads = [[], [], [], []];     // displayed reads per head: [{age, w, dw}]
@@ -1334,7 +1335,7 @@ export class BrainViz {
     this.history = []; this.bar = 0; this.barT = 0;
     this.kick = 0; this.tick = 0; this.flash = 0; this.flashSign = 0; this.ripples = []; this.heat = 0;
     this.last = performance.now();
-    this.screen = new DemoScreen(); this.level = 0; this.lastKickT = -1e9; this.kickEdge = false; this.stepIdx = 0;
+    this.screen = new DemoScreen(); if (this.scroller) this.screen.scroll.text = this.scroller; this.level = 0; this.lastKickT = -1e9; this.kickEdge = false; this.stepIdx = 0;
     this.now = null; this.news = []; this.meanMax = new Map(); this.an = null; this.wave = null; this.spec = null;
     this.matrixRows = []; this.settleHist = []; this.mxCanvas = null;
     this.gl3 = null; this.b3d = { key: undefined, state: 'idle', busy: false, next: 0, note: '' }; this.lastStep = 0; this.drag = null;
@@ -1482,7 +1483,7 @@ export class BrainViz {
       bar: this.bar, step: this.stepIdx, kick: this.kick, kickEdge: this.kickEdge, level: this.level, heat: this.heat,
       flash: this.flash, flashSign: this.flashSign, mood: this.moodNow(),
       kickAt: (i) => { const d = sinceKick - i * 0.035; return d < 0 ? 0 : Math.exp(-d / 0.13); },
-      news: () => this.news.shift() || `BAR ${this.bar} :: `,
+      news: () => this.scroller || this.news.shift() || `BAR ${this.bar} :: `,
     };
     this.kickEdge = false;
     return S;
