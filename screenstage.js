@@ -1,5 +1,5 @@
 // Cadance radio, the screen stage: a light sculpture. A sphere of small icosahedral lamps turns slowly in a dark
-// room, and the three synth lines of the track that plays write its colours.
+// room; the three synth lines of the track that plays write its colours and the drums strike it.
 //
 // The object. The cells stand on a geodesic sphere (92 of them, 42 on a small canvas): twelve cells have five
 // neighbours, all others six. Every cell is an icosahedron: twelve ports at its corners, thirty edges, twenty faces.
@@ -8,25 +8,45 @@
 // spills from a cell onto its neighbours' frames and glass, runs along the seams, glows in the air around the
 // sphere and lies on the floor under it.
 //
-// The light program. One rule for all three lines, with a few numbers per line:
-//   a note lights a spot at the cell of its pitch class. The twelve five-neighbour cells are the twelve pitch
-//   classes: a tritone is the opposite side of the sphere, a ring of five is a chain of fifths;
-//   from there the spot wanders over the neighbour graph, cell by cell along a shortest way, toward the cell of the
-//   line's next note, and where the next note is known it arrives as that note starts;
+// The light program, the synths. One rule for all three lines, with a few numbers per line:
+//   a note lights a spot at the cell of its pitch class. The twelve pitch classes stand as the twelve corners of an
+//   icosahedron (a tritone is the opposite side, a ring of five a chain of fifths). Each line holds this figure
+//   in a turn of its own, and at every bar line it turns the figure by up to a radian toward the part of the
+//   sphere that has had the least light, counted over the notes the bar is going to play; within a bar a pitch
+//   keeps its cell;
+//   every cell knows how much it wants light: how long it has been dark, and how little light it has had in the
+//   last bars against the others. Between two notes a spot does not rest and does not take the shortest way: it
+//   wanders over the neighbour graph by way of the cell that wants light most among those it can reach in time,
+//   and arrives at the next note's cell as that note starts. On its way it stays lit, so the eye can follow it;
 //   a held note keeps its spot alive; a note marked as a slide makes no new spot: the line's spot is dragged to
 //   the new place; an accent is brighter and sends a ring over the sphere;
 //   every cell remembers the light that passed (an afterglow), so a moving spot draws a tail.
-//   The bass is slow and wide and sends a ring with every note, the lead is fast and narrow, the air is a wide,
-//   slow wash. Pitch class picks the hue inside the line's family (bass blue to magenta, lead green to sky, air
-//   rose to peach), the octave its lightness. Where lines meet, the stronger one sets the hue and the others tint
-//   it; brightness is bounded, so the sphere is never white all over. A dim tide in the page's cyan keeps it from
-//   going dark. A kick is a small breath of the whole sculpture's brightness (never two within 0.36 s), the hats
-//   make ports twinkle. Calm mode: no breath, no twinkle, slower rings, a slower turn.
+//   The bass is slow and wide and sends a ring with every note, the lead is fast and narrow, the air is a wide
+//   wash that drifts round the sphere. Pitch class picks the hue inside the line's family (bass blue to magenta,
+//   lead green to sky, air rose to peach), the octave its lightness. Where lines meet, the stronger one sets the
+//   hue and the others tint it; brightness is bounded, so the sphere is never white all over. A dim tide in the
+//   page's cyan keeps it from going dark.
 //
-// Read from the bar: tokens (which line sounds), patterns (the drum hits; per line the notes with pitch, velocity,
-// length, slide and accent). Not read: mods, patches, view. Derived, and said so here: everything else. Which
-// cell is which pitch class, the ways the spots take, their widths, speeds and colours, the afterglow, the rings,
-// the tide, the breath and the twinkle are this module's own program; the track's data gives the notes only.
+// The light program, the drums. The bar's sixteen steps lie evenly from left to right across the side of the sphere
+// that faces the room, and once more across the far side, whatever the sphere's turn. A thin line of light is the
+// playhead: it crosses the near side once a bar. The kick lives on a low ring, the snare on a ring above the
+// middle. From the bar line on, the bar's pattern stands there to read: a warm panel and warm ports where a kick
+// falls, a short cold line of them where a snare falls. When the playhead reaches a hit, the panels round it
+// light: a kick is a warm pulse that spreads a short way, a snare a sharp cold streak (an accent taller and
+// brighter). The hats make ports
+// sparkle round the playhead. A kick is also a small breath of the whole sculpture (7 percent, never two within
+// 0.36 s); all other drum light is local.
+//
+// Calm mode: no breath, no strikes, no playhead and no sparkle (the bar's hits are steady dim marks), slower
+// spots and rings, a slower turn. When nobody plays (no bar yet, or the clock stands for more than a bar), three
+// slow lights of the three families wander by themselves.
+//
+// Read from the bar: tokens (which line sounds), patterns (the drum hits with their levels; per line the notes with
+// pitch, velocity, length, slide and accent). Not read: mods, patches, view. Derived, and said so here: everything
+// else. Which cell is which pitch class and how a line turns that figure, the ways the spots take, their widths, speeds
+// and colours, the afterglow, the rings, the tide, where the steps and the drum voices lie, the shapes and colours
+// of the strikes, the playhead, the breath, the sparkle and the idle lights are this module's own program; the
+// track's data gives the notes and the hits only.
 //
 // One ES module, no dependency, no request. WebGL 1 or 2; without it `ok` is false and nothing is drawn.
 //
@@ -34,6 +54,7 @@
 //   screen.ok                                   false: no WebGL, the page falls back
 //   screen.setClock({ ctx, bpm, barZeroTime }); bar k starts at barZeroTime + k * 240 / bpm; without ctx: performance.now()
 //   screen.setBar(index, bar);                  the bar that sounds now (tokens, patterns)
+//   screen.setBar(index, bar, nextBar);         the same with the bar after it, if the page knows it: the spots then travel across the bar line
 //   screen.setAudio(analyser);                  the master analyser, optional: it scales the overall level a little
 //   screen.setCalm(on); screen.resize(); screen.start(); screen.stop(); screen.stats();
 //   also: screen.setView({ turn, zoom })        for stills and close-ups: a fixed turn in radians (null: it turns by itself), a zoom (1: the sphere fits)
@@ -42,12 +63,18 @@ const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 const TAU = Math.PI * 2;
 // per line: the hue family (degrees, centre and half span), saturation, lightness, the spot's width (radians on the
 // unit sphere), its fastest travel (radians a bar), attack and release (bars), the afterglow's time (bars), the
-// ring a note sends (strength, speed in radians a bar, width, life in bars), gain, how the travel is eased
+// ring a note sends (strength, speed in radians a bar, width, life in bars), gain, how the travel is eased, how
+// bright a spot stays on its way (a share of its note's level)
 const LINES = [
-  { hue: 262, span: 52, sat: 0.96, light: 0.5, sigma: 0.31, speed: 3.2, attack: 0.02, release: 0.2, glow: 0.26, ring: 0.2, ringSpeed: 3.6, ringWidth: 0.18, ringLife: 0.28, gain: 0.9, ease: 1 },
-  { hue: 168, span: 38, sat: 0.95, light: 0.5, sigma: 0.17, speed: 16, attack: 0.008, release: 0.24, glow: 0.22, ring: 0, ringSpeed: 9, ringWidth: 0.15, ringLife: 0.14, gain: 1.3, ease: 1.1 },
-  { hue: 6, span: 20, sat: 0.92, light: 0.58, sigma: 0.8, speed: 1.5, attack: 0.14, release: 0.8, glow: 0.9, ring: 0, ringSpeed: 2, ringWidth: 0.4, ringLife: 0.6, gain: 0.52, ease: 1 },
+  { hue: 262, span: 52, sat: 0.96, light: 0.5, sigma: 0.31, speed: 3.6, attack: 0.02, release: 0.2, glow: 0.26, ring: 0.2, ringSpeed: 3.6, ringWidth: 0.18, ringLife: 0.28, gain: 0.9, ease: 1, floor: 0.72 },
+  { hue: 168, span: 38, sat: 0.95, light: 0.5, sigma: 0.17, speed: 16, attack: 0.008, release: 0.24, glow: 0.22, ring: 0, ringSpeed: 9, ringWidth: 0.15, ringLife: 0.14, gain: 1.3, ease: 1.1, floor: 0.62 },
+  { hue: 6, span: 20, sat: 0.92, light: 0.58, sigma: 0.6, speed: 2.4, attack: 0.14, release: 0.6, glow: 0.45, ring: 0, ringSpeed: 2, ringWidth: 0.4, ringLife: 0.6, gain: 0.6, ease: 1, floor: 0.8 },
 ];
+// the drums' places and colours: the kick's ring below the middle, the snare's above it (latitudes in radians)
+const KICK_LAT = -0.32, SNARE_LAT = 0.5, KICK_RGB = [1.0, 0.8, 0.55], SNARE_RGB = [0.72, 0.88, 1.0];
+// where a moment of the bar (0 to 1) lies on the side that faces the room: evenly from left to right as the room
+// sees it (an angle round the sphere's axis, in the room's frame; the far side holds the same again, half a turn on)
+const stepLon = (phase) => Math.acos(clamp(-0.94 + 1.88 * phase, -1, 1));
 // the twelve pitch classes on the twelve five-neighbour cells (the pole, the upper ring, the lower ring, the other
 // pole): opposite cells are a tritone apart, the upper ring is a chain of fifths
 const POLE_OF_PC = (() => { const at = [0, 7, 2, 9, 4, 11, 10, 5, 1, 8, 3, 6], out = new Array(12); at.forEach((pc, cell) => { out[pc] = cell; }); return out; })();
@@ -80,6 +107,22 @@ function hsl(h, s, l) {
   return [r + m, g + m, b + m];
 }
 
+// a rotation as nine numbers, row by row: about an axis by an angle; one after another; applied to a direction
+function turnAbout(a, ang) {
+  const c = Math.cos(ang), s = Math.sin(ang), t = 1 - c, [x, y, z] = a;
+  return [t * x * x + c, t * x * y - s * z, t * x * z + s * y, t * x * y + s * z, t * y * y + c, t * y * z - s * x, t * x * z - s * y, t * y * z + s * x, t * z * z + c];
+}
+function turnAfter(A, B) {                       // first B, then A; made true again, so that many turns in a row stay a rotation
+  const m = [0, 0, 0, 0, 0, 0, 0, 0, 0];
+  for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) m[i * 3 + j] = A[i * 3] * B[j] + A[i * 3 + 1] * B[3 + j] + A[i * 3 + 2] * B[6 + j];
+  const r0 = norm([m[0], m[1], m[2]]), k = dot(r0, [m[3], m[4], m[5]]), r1 = norm([m[3] - k * r0[0], m[4] - k * r0[1], m[5] - k * r0[2]]), r2 = cross(r0, r1);
+  return [...r0, ...r1, ...r2];
+}
+// how each line's figure of the twelve pitch classes stands at first, and the turns a line may give it at a bar line
+// (none, or half a radian or one radian about one of six axes, either way)
+const FIGURE0 = [turnAbout(norm([0.42, 0.86, 0.29]), 0.4), turnAbout(norm([-0.55, 0.52, 0.65]), 2.1), turnAbout(norm([0.7, 0.15, -0.7]), 4.0)];
+const STEPS = (() => { const out = [{ m: null, cost: 0 }]; for (const a of [[1, 0, 0], [0, 1, 0], [0, 0, 1], [1, 1, 0], [0, 1, 1], [1, 0, 1]]) for (const ang of [0.5, -0.5, 1, -1]) out.push({ m: turnAbout(norm(a), ang), cost: 0.05 * Math.abs(ang) }); return out; })();
+
 // ---------- the geometry ----------
 // an icosahedron with one corner on the axis `up` of a frame: 12 unit corners (the corner on the axis, a ring of
 // five, a ring of five turned by 36 degrees, the opposite corner) and its 20 faces, wound outward
@@ -98,7 +141,7 @@ function icosahedron() {
 }
 // the sphere: the corners of an icosahedron whose faces are divided `f` times (42 cells for 2, 92 for 3), each
 // cell an icosahedron turned so that ports face its neighbours, the seams between those ports, the ways over the
-// neighbour graph to each of the twelve five-neighbour cells
+// neighbour graph between any two cells
 function buildSphere(f) {
   const ico = icosahedron(), base = ico.v.map(([x, y, z]) => [x, z, -y]);           // the axis upright
   const pos = base.map((p) => p.slice()), key = new Map(), tris = [];
@@ -143,15 +186,10 @@ function buildSphere(f) {
   }
   const seams = [];
   for (let a = 0; a < n; a++) for (const b of nb[a]) if (a < b) seams.push([a, b, portOf[a].get(b), portOf[b].get(a)]);
-  // the way to each of the twelve pitch cells: from any cell, the neighbour that is one step closer and most in line
-  const next = [];
-  for (let p = 0; p < 12; p++) {
-    const dist = new Int16Array(n).fill(-1), to = new Int16Array(n).fill(-1), queue = [p]; dist[p] = 0;
-    for (let h = 0; h < queue.length; h++) for (const k of nb[queue[h]]) if (dist[k] < 0) { dist[k] = dist[queue[h]] + 1; queue.push(k); }
-    for (let c = 0; c < n; c++) { let bestDot = -9; for (const k of nb[c]) if (dist[k] === dist[c] - 1) { const d = dot(pos[k], pos[p]); if (d > bestDot) { bestDot = d; to[c] = k; } } }
-    next.push(to);
-  }
-  return { n, pos, nb, rc, hop, corners, faces: ico.faces, seams, next };
+  // the hops between any two cells over the neighbour graph
+  const D = new Uint8Array(n * n).fill(255);
+  for (let a = 0; a < n; a++) { const queue = [a]; D[a * n + a] = 0; for (let h = 0; h < queue.length; h++) for (const k of nb[queue[h]]) if (D[a * n + k] === 255) { D[a * n + k] = D[a * n + queue[h]] + 1; queue.push(k); } }
+  return { n, pos, nb, rc, hop, corners, faces: ico.faces, seams, D };
 }
 
 // ---------- shaders (GLSL ES 1.00) ----------
@@ -269,7 +307,9 @@ export class ScreenStage {
     this.calm = !!calm || (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches);
     this.clock = { ctx: null, bpm: 145, barZeroTime: null };
     this.score = new Map(); this.curIndex = -1; this.barAt = 0; this.pos = 0; this.posWas = null;
-    this.heads = []; this.rings = []; this.kick = 0; this.lastFlash = -9; this.spark = 0; this.sparkSeed = 0; this.stepWas = -1;
+    this.heads = []; this.rings = []; this.idlers = []; this.kick = 0; this.lastFlash = -9; this.spark = 0; this.sparkSeed = 0; this.sparkRate = 14; this.stepWas = -1;
+    this.kb = new Float32Array(24 * 8); this.sb = new Float32Array(24 * 4); this.nk = 0; this.ns = 0; this.idleK = 1; this.movedAt = -1e9; this.lt = 0;
+    this.figure = [new Map(), new Map(), new Map()]; this.figureNow = FIGURE0.map((q) => q.slice());
     this.level = 1; this.analyser = null; this.spec = null; this.view = { turn: null, zoom: 1 }; this.turn = 0.6;
     this.running = false; this.raf = 0; this.frameMs = 16; this.scale = 1; this.slow = 0; this.frames = 0; this.lost = false;
     this.gl = null; this.S = null; this._loop = this._loop.bind(this);
@@ -282,10 +322,25 @@ export class ScreenStage {
   setCalm(on) { this.calm = !!on; }
   setView({ turn = null, zoom = 1 } = {}) { this.view = { turn: typeof turn === 'number' ? turn : null, zoom: clamp(+zoom || 1, 0.4, 4) }; }
 
-  // the bar that sounds now: its three lines' notes, and the steps of its kick and its hats
-  setBar(index, bar) {
+  // the bar that sounds now: its three lines' notes and its drum hits. `next`, if the page knows it, is the bar after
+  // it: the spots then travel across the bar line toward its first notes
+  setBar(index, bar, next) {
     if (!bar) return;
-    if (index < this.curIndex - 1 || index > this.curIndex + 8) { this.score.clear(); this.heads.length = 0; this.rings.length = 0; this.posWas = null; }       // another track, or a jump
+    if (index < this.curIndex - 1 || index > this.curIndex + 8) { this.score.clear(); this.heads.length = 0; this.rings.length = 0; this.posWas = null; for (const m of this.figure) m.clear(); }       // another track, or a jump
+    const same = index === this.curIndex;
+    this.score.set(index, this._read(index, bar));
+    if (next) this.score.set(index + 1, this._read(index + 1, next));
+    for (const k of this.score.keys()) if (k < index - 2) this.score.delete(k);
+    if (!same) { this.curIndex = index; this.barAt = this._now(); }
+    // a spot that wandered without a goal now knows its line's next note
+    const lines = this.score.get(index).lines;
+    for (const h of this.heads) if (h.waiting && lines[h.line].length) {
+      const nx = lines[h.line][0];
+      if (nx.t > h.t0 && !nx.slide && this.S) { const now = Math.max(this.pos, h.t0); h.moves = h.moves.filter((m) => m.t0 < now); this._send(h, h.cell, nx, now); }
+      h.waiting = false;
+    }
+  }
+  _read(index, bar) {
     const tok = bar.tokens || [1, 1, 1, 1], pats = bar.patterns || [], lines = [[], [], []], sets = [];
     let hits = null;
     for (const p of pats) { if (p && p.hits) hits = p.hits; else sets.push(p && p.notes ? p : null); }       // a line keeps its place when another line's pattern is missing
@@ -297,13 +352,8 @@ export class ScreenStage {
         lines[l].push({ t: index + t / 16, dur: clamp((p.len && p.len[t]) || 1, 1, 16) / 16, midi, vel: p.vel ? clamp(+p.vel[t] || 0.6, 0.2, 1) : 0.7, slide: !!(p.slide && p.slide[t]), accent: !!(p.accent && p.accent[t]) });
       }
     }
-    const row = (k) => { const out = []; for (let t = 0; t < 16; t++) if (hits && hits[k] && +hits[k][t] > 0) out.push(t); return out; };
-    const same = index === this.curIndex;
-    this.score.set(index, { lines, kicks: row('kick'), hats: [...row('ch'), ...row('oh')] });
-    for (const k of this.score.keys()) if (k < index - 2) this.score.delete(k);
-    if (!same) { this.curIndex = index; this.barAt = this._now(); }
-    // a spot that waited for its line's next note now knows where to go
-    for (const h of this.heads) if (h.waiting && lines[h.line].length) { const nx = lines[h.line][0]; if (nx.t > h.t0 && !nx.slide) { this._send(h, nx, Math.max(this.pos, h.t0)); h.waiting = false; } }
+    const row = (...names) => { const out = new Float32Array(16); if (hits) for (const k of names) if (hits[k]) for (let t = 0; t < 16; t++) out[t] = Math.max(out[t], clamp(+hits[k][t] || 0, 0, 1)); return out; };
+    return { lines, kick: row('kick'), snare: row('snare', 'clap'), hat: row('ch', 'oh', 'cym'), open: row('oh', 'cym') };
   }
 
   resize() {
@@ -318,7 +368,7 @@ export class ScreenStage {
   }
   start() { if (this.running || !this.gl) return; this.running = true; this.last = performance.now(); this.raf = requestAnimationFrame(this._loop); }
   stop() { this.running = false; if (this.raf) cancelAnimationFrame(this.raf); this.raf = 0; }
-  stats() { return { frameMs: this.frameMs, scale: this.scale, webgl: !!this.gl, cells: this.S ? this.S.n : 0, seams: this.S ? this.S.seams.length : 0, spots: this.heads.length, rings: this.rings.length, bar: this.pos }; }
+  stats() { return { frameMs: this.frameMs, scale: this.scale, webgl: !!this.gl, cells: this.S ? this.S.n : 0, seams: this.S ? this.S.seams.length : 0, spots: this.heads.length, rings: this.rings.length, bar: this.pos, idle: this.idleK > 0.5 }; }
 
   // ---------- time ----------
   _now() { const c = this.clock.ctx; return c && typeof c.currentTime === 'number' ? c.currentTime : performance.now() / 1000; }
@@ -428,8 +478,14 @@ export class ScreenStage {
     gl.bindBuffer(gl.ARRAY_BUFFER, this.buf.seamCol); gl.bufferData(gl.ARRAY_BUFFER, S.seamCol, gl.DYNAMIC_DRAW);
     // the light program's memory: per line and cell the afterglow and its colour; per cell its colour now
     S.glowI = [0, 1, 2].map(() => new Float32Array(S.n)); S.glowC = [0, 1, 2].map(() => new Float32Array(S.n * 3));
-    S.cellCol = new Float32Array(S.n * 3); S.near = new Float32Array(S.n);
-    this.S = S; this.heads.length = 0; this.rings.length = 0;
+    S.cellCol = new Float32Array(S.n * 3);
+    // for the drums: where a face and a port lie round the sphere's axis; for the wandering: how long a cell has been dark (bars)
+    S.faceLon = new Float32Array(nF); S.faceLat = new Float32Array(nF); S.faceCos = new Float32Array(nF);
+    for (let i = 0; i < nF; i++) { const y = clamp(S.faceDir[i * 3 + 1], -1, 1); S.faceLat[i] = Math.asin(y); S.faceCos[i] = Math.sqrt(1 - y * y); S.faceLon[i] = Math.atan2(S.faceDir[i * 3 + 2], S.faceDir[i * 3]); }
+    S.portLon = new Float32Array(S.n * 12); S.portCos = new Float32Array(S.n * 12); S.portLat = new Float32Array(S.n * 12); S.portDir = new Float32Array(S.n * 36);
+    for (let i = 0; i < S.n * 12; i++) { const d = norm([port[i * 3], port[i * 3 + 1], port[i * 3 + 2]]); S.portDir.set(d, i * 3); S.portLon[i] = Math.atan2(d[2], d[0]); S.portCos[i] = Math.sqrt(1 - d[1] * d[1]); S.portLat[i] = Math.asin(clamp(d[1], -1, 1)); }
+    S.dark = new Float32Array(S.n).fill(3); S.fed = new Float32Array(S.n); S.want = new Float32Array(S.n).fill(1);
+    this.S = S; this.heads.length = 0; this.rings.length = 0; this.idlers.length = 0;
   }
 
   // ---------- the light program ----------
@@ -438,39 +494,144 @@ export class ScreenStage {
     const c = hsl(L.hue + (fifths / 11 - 0.5) * 2 * L.span, L.sat, L.light + 0.1 * oct);
     return note.accent ? c.map((x) => x + (1 - x) * 0.22) : c;
   }
-  // the way from a cell to a pitch cell, over the neighbour graph
-  _way(from, pole) { const S = this.S, out = [from]; let c = from; for (let i = 0; i < 64 && c !== pole; i++) { c = S.next[pole][c]; if (c < 0) break; out.push(c); } return out; }
-  // send a spot toward the place of a coming note: it leaves now and, where its line's speed allows, arrives as that note starts
-  _send(h, note, from) {
-    const pole = POLE_OF_PC[((note.midi % 12) + 12) % 12], path = this._way(h.cell, pole);
-    if (path.length > 1) h.moves.push({ path, t0: from, t1: Math.max(note.t, from + 0.01), ease: LINES[h.line].ease });
+  // the cell where a pitch class stands when the figure of the twelve is held in the turn Q
+  _cell(Q, midi) {
+    const S = this.S, d = S.pos[POLE_OF_PC[((midi % 12) + 12) % 12]], x = Q[0] * d[0] + Q[1] * d[1] + Q[2] * d[2], y = Q[3] * d[0] + Q[4] * d[1] + Q[5] * d[2], z = Q[6] * d[0] + Q[7] * d[1] + Q[8] * d[2];
+    let best = 0, top = -2;
+    for (let i = 0; i < S.n; i++) { const P = S.pos[i], v = P[0] * x + P[1] * y + P[2] * z; if (v > top) { top = v; best = i; } }
+    return best;
+  }
+  // a line's figure in a bar: the turn it had, turned at the bar line toward where the sphere wants light, over the notes of the bar
+  _figure(line, bar) {
+    const kept = this.figure[line]; let Q = kept.get(bar); if (Q) return Q;
+    let from = -1; for (const k of kept.keys()) if (k < bar && k > from) from = k;
+    Q = from >= 0 ? kept.get(from) : this.figureNow[line];
+    const sc = this.score.get(bar); if (!sc) return Q;        // a bar that is not known yet: nothing is decided
+    const notes = sc.lines[line], S = this.S;
+    if (notes.length) {
+      let best = Q, top = -9;
+      for (const step of STEPS) {
+        const R = step.m ? turnAfter(step.m, Q) : Q; let sum = 0, len = 0;
+        for (const nt of notes) { const c = this._cell(R, nt.midi); let w = 0; for (const k of S.nb[c]) w += S.want[k]; sum += nt.dur * (0.5 * S.want[c] + (0.5 * w) / S.nb[c].length); len += nt.dur; }
+        const score = sum / len - step.cost;
+        if (score > top) { top = score; best = R; }
+      }
+      Q = best;
+    }
+    kept.set(bar, Q); this.figureNow[line] = Q;
+    for (const k of kept.keys()) if (k < bar - 3) kept.delete(k);
+    return Q;
+  }
+  // where a pitch class lives at a bar position
+  _home(line, midi, pos) { return this._cell(this._figure(line, Math.floor(pos + 1e-6)), midi); }
+  // how much a cell wants light, 0 to 1
+  _hunger(c) { return this.S.want[c]; }
+  // a shortest way from cell to cell that prefers the hungry cells (appended to `out`, without its first cell)
+  _leg(from, to, out) {
+    const S = this.S, n = S.n, D = S.D; let c = from;
+    while (c !== to) {
+      const need = D[c * n + to] - 1; let best = -1, top = -9;
+      for (const k of S.nb[c]) if (D[k * n + to] === need) { const sc = this._hunger(k) + 0.3 * dot(S.pos[k], S.pos[to]); if (sc > top) { top = sc; best = k; } }
+      if (best < 0) break;
+      out.push(best); c = best;
+    }
+    return out;
+  }
+  // the way a spot takes in the hops it has time for: by way of the hungriest cell in reach (to < 0: no goal, it ends there)
+  _route(from, to, budget) {
+    const S = this.S, n = S.n, D = S.D, direct = to < 0 ? 0 : D[from * n + to]; let via = -1, top = to < 0 ? -1 : 0.2;
+    if (budget > direct) for (let w = 0; w < n; w++) {
+      const out = D[from * n + w]; if (w === from || out + (to < 0 ? 0 : D[w * n + to]) > budget) continue;
+      let h = 0; for (const k of S.nb[w]) h += this._hunger(k);
+      const sc = 0.55 * this._hunger(w) + (0.45 * h) / S.nb[w].length + 0.02 * out;
+      if (sc > top) { top = sc; via = w; }
+    }
+    const path = [from];
+    if (via >= 0 && via !== to) { this._leg(from, via, path); if (to >= 0) this._leg(via, to, path); } else if (to >= 0) this._leg(from, to, path);
+    for (const c of path) S.dark[c] *= 0.4;                   // these cells are about to be lit: the next spot looks elsewhere
+    return path;
+  }
+  _hops(line, bars) { return Math.floor((LINES[line].speed * (this.calm ? 0.6 : 1) * bars * 0.9) / this.S.hop); }
+  // send a spot toward the place of a coming note: it leaves now and arrives as that note starts
+  _send(h, start, note, t0) {
+    const t1 = Math.max(note.t, t0 + 0.01), path = this._route(start, this._home(h.line, note.midi, note.t), this._hops(h.line, t1 - t0));
+    if (path.length > 1) h.moves.push({ path, t0, t1, ease: LINES[h.line].ease });
+  }
+  // the line's next note is not known yet: the spot wanders until the bar line
+  _wander(h, start, t0, until) {
+    if (until - t0 < 0.03) return;
+    const path = this._route(start, -1, this._hops(h.line, until - t0));
+    if (path.length > 1) h.moves.push({ path, t0, t1: until, ease: 1 });
   }
   _note(line, note, nextNote) {
-    const L = LINES[line], S = this.S, pc = ((note.midi % 12) + 12) % 12, pole = POLE_OF_PC[pc], col = this._colour(line, note), level = (0.55 + 0.45 * note.vel) * (note.accent ? 1.4 : 1);
+    const L = LINES[line], S = this.S, home = this._home(line, note.midi, note.t), col = this._colour(line, note), level = (0.55 + 0.45 * note.vel) * (note.accent ? 1.4 : 1);
     let h = null;
     if (note.slide) for (const x of this.heads) if (x.line === line && !x.gone && note.t <= x.end + L.release * 1.5 && (!h || x.t0 > h.t0)) h = x;       // a slide: the line's spot is dragged, no new one is lit
     if (h) {
-      const path = this._way(h.cell, pole), glide = clamp([0.05, 0.03, 0.14][line] * (path.length - 1), 0.03, [0.2, 0.14, 0.9][line]);       // the air is dragged slowly, the lead at once
+      const path = this._leg(h.cell, home, [h.cell]), glide = clamp([0.05, 0.03, 0.14][line] * (path.length - 1), 0.03, [0.2, 0.14, 0.9][line]);       // the air is dragged slowly, the lead at once
       h.moves = path.length > 1 ? [{ path, t0: note.t, t1: note.t + glide, ease: 1, drag: true }] : [];
       h.from = h.col.slice(); h.to = col; h.turnAt = note.t; h.turnFor = glide;
-      h.end = note.t + note.dur; h.level = Math.max(h.level * 0.92, level); h.waiting = false; h.dragged = true;
+      h.end = note.t + note.dur; h.level = Math.max(h.level * 0.92, level); h.waiting = false;
     } else {
       for (const x of this.heads) if (x.line === line && x.end > note.t) x.end = Math.max(x.t0, note.t);       // the line's last note ends where the new one begins
-      h = { line, t0: note.t, end: note.t + note.dur, level, col, from: col, to: col, turnAt: 0, turnFor: 0, cell: pole, moves: [], p: S.pos[pole].slice(), seg: null, I: 0, waiting: false, gone: false };
+      h = { line, t0: note.t, end: note.t + note.dur, level, col, from: col, to: col, turnAt: 0, turnFor: 0, cell: home, moves: [], p: S.pos[home].slice(), seg: null, I: 0, waiting: false, gone: false };
       this.heads.push(h);
       const ring = L.ring > 0 ? L.ring : note.accent ? 0.42 : 0;
-      if (ring > 0) this.rings.push({ line, dir: S.pos[pole], t0: note.t, col, strength: ring * level * (note.accent && L.ring > 0 ? 2.2 : 1) });
+      if (ring > 0) this.rings.push({ line, dir: S.pos[home], t0: note.t, col, strength: ring * level * (note.accent && L.ring > 0 ? 2.2 : 1) });
     }
     // where it goes from here: toward the line's next note, if that note is known and is not itself a slide (a slide will drag it anyway)
     const after = h.moves.length ? h.moves[h.moves.length - 1].t1 : note.t;
-    h.cellAfter = pole;
-    if (nextNote && !nextNote.slide) { const keep = h.cell; h.cell = pole; this._send(h, nextNote, after); h.cell = keep; }
-    else if (!nextNote) h.waiting = true;
+    if (nextNote && !nextNote.slide) this._send(h, home, nextNote, after);
+    else if (!nextNote) { h.waiting = true; this._wander(h, home, after, Math.floor(note.t + 1e-6) + 1); }
   }
-  _lights(pos, dBars) {
+  // nobody plays: three slow lights of the three families wander by themselves, each to the hungriest cell in its reach
+  _idle(dt, k) {
+    const S = this.S, t = performance.now() / 1000;
+    if (!this.idlers.length) for (let l = 0; l < 3; l++) { const cell = POLE_OF_PC[[0, 4, 7][l]]; this.idlers.push({ line: l, cell, path: null, at: 0, I: 0, p: S.pos[cell].slice(), col: [0, 0, 0], seg: null }); }
+    for (const h of this.idlers) {
+      const L = LINES[h.line];
+      if (!h.path || h.at >= h.path.length - 1) { if (h.path) h.cell = h.path[h.path.length - 1]; h.path = this._route(h.cell, -1, 4 + 2 * h.line); h.at = 0; }
+      if (h.path.length > 1) {
+        h.at = Math.min(h.path.length - 1, h.at + dt * [1.0, 2.2, 0.6][h.line]);
+        const i = clamp(Math.floor(h.at), 0, h.path.length - 2), fr = h.at - i, A = S.pos[h.path[i]], B = S.pos[h.path[i + 1]];
+        h.p = norm([A[0] + (B[0] - A[0]) * fr, A[1] + (B[1] - A[1]) * fr, A[2] + (B[2] - A[2]) * fr]); h.cell = fr < 0.5 ? h.path[i] : h.path[i + 1]; h.seg = [h.path[i], h.path[i + 1], fr];
+      }
+      h.I = k * [0.62, 0.82, 0.5][h.line];
+      h.col = hsl(L.hue + L.span * Math.sin(t * 0.11 + h.line * 2.1), L.sat, L.light);
+    }
+  }
+  // the drums of this frame, in the sphere's own frame. Per kick: its place, the strength and width of its glow on the
+  // panels, its ring, its mark on the ports. Per snare: the longitude of its streak, its strength, its height, its mark.
+  // A step lies at the same place in the room whatever the turn. The marks of the bar's hits stand from the bar line
+  // on (the pattern is there to read); a strike is the light on the panels when the playhead reaches the hit.
+  _drums(pos, turn) {
+    const kb = this.kb, sb = this.sb, calm = this.calm, bar = Math.floor(pos), ck = Math.cos(KICK_LAT), sk = Math.sin(KICK_LAT); let nk = 0, ns = 0;
+    for (let back = 0; back < (calm ? 1 : 2); back++) {
+      const sc = this.score.get(bar - back); if (!sc) continue;
+      const phase = Math.min(pos - bar, 1) + back, shown = back ? 0 : Math.min(1, phase / 0.04);
+      for (let s = 0; s < 16; s++) {
+        const k = sc.kick[s], sn = sc.snare[s]; if (!k && !sn) continue;
+        const age = phase - s / 16, lon = stepLon((s + 0.5) / 16) + turn;
+        if (k && nk < 24) {
+          let glow = 0, ring = 0;
+          if (!calm && age >= 0) { glow = k * (0.95 * Math.exp(-age / 0.07) + 0.1 * Math.exp(-age / 0.25)); ring = 0.5 * k * Math.exp(-age / 0.17); }
+          const mark = (0.45 + 0.4 * k) * shown * (calm ? 1.6 : 1);
+          if (glow > 0.004 || ring > 0.004 || mark > 0.004) { const o = nk * 8; kb[o] = ck * Math.cos(lon); kb[o + 1] = sk; kb[o + 2] = ck * Math.sin(lon); kb[o + 3] = glow; kb[o + 4] = 12.5; kb[o + 5] = ring; kb[o + 6] = Math.min(0.62, 3.4 * Math.max(age, 0)); kb[o + 7] = mark; nk++; }
+        }
+        if (sn && ns < 24) {
+          let v = 0; const tall = sn > 0.75 ? 0.5 : 0.34;
+          if (!calm && age >= 0) v = sn * (1.15 * Math.exp(-age / 0.05) + 0.1 * Math.exp(-age / 0.25));
+          const mark = (0.45 + 0.4 * sn) * shown * (calm ? 1.6 : 1);
+          if (v > 0.004 || mark > 0.004) { const o = ns * 4; sb[o] = lon; sb[o + 1] = v; sb[o + 2] = 1 / (2 * tall * tall); sb[o + 3] = mark; ns++; }
+        }
+      }
+    }
+    this.nk = nk; this.ns = ns;
+  }
+  _lights(pos, dBars, turn) {
     const S = this.S, n = S.n, heads = this.heads, calm = this.calm;
     // the notes whose time has come
-    if (this.posWas === null || pos < this.posWas || pos - this.posWas > 2) { this.posWas = pos - 1e-6; }
+    if (this.posWas === null || this.posWas === undefined || pos < this.posWas || pos - this.posWas > 2) { this.posWas = pos - 1e-6; }
     for (let b = Math.floor(this.posWas); b <= Math.floor(pos); b++) {
       const sc = this.score.get(b); if (!sc) continue;
       for (let l = 0; l < 3; l++) { const list = sc.lines[l]; for (let i = 0; i < list.length; i++) { const nt = list[i]; if (nt.t > this.posWas && nt.t <= pos) { const up = this.score.get(b + 1); this._note(l, nt, list[i + 1] || (up && up.lines[l][0]) || null); } } }
@@ -482,15 +643,17 @@ export class ScreenStage {
       if (pos < h.t0 + L.attack) env = Math.max(0, (pos - h.t0) / L.attack);
       else if (pos <= h.end) env = 1 - 0.2 * clamp((pos - h.t0) / Math.max(h.end - h.t0, 0.06), 0, 1);
       else env = 0.8 * Math.exp(-(pos - h.end) / L.release);
-      h.I = h.level * env * L.gain;
-      if (pos > h.end && env < 0.012) h.gone = true;
-      if (h.turnFor > 0) { const k = clamp((pos - h.turnAt) / h.turnFor, 0, 1); for (let q = 0; q < 3; q++) h.col[q] = h.from[q] + (h.to[q] - h.from[q]) * k; }
       let mv = null; for (const m of h.moves) { if (pos >= m.t0) mv = m; }
+      const onWay = mv && !mv.drag && pos < mv.t1;
+      if (onWay) env = Math.max(env, L.floor * Math.min(1, (pos - h.t0) / 0.04));        // a spot on its way stays lit
+      const want = h.level * env * L.gain;
+      h.I = want >= h.I ? want : Math.max(want, h.I * Math.exp(-dBars / 0.06));
+      if (pos > h.end && h.I < 0.012 && !onWay) h.gone = true;
+      if (h.turnFor > 0) { const k = clamp((pos - h.turnAt) / h.turnFor, 0, 1); for (let q = 0; q < 3; q++) h.col[q] = h.from[q] + (h.to[q] - h.from[q]) * k; }
       h.seg = null;
       if (mv) {
         const hops = mv.path.length - 1, f = Math.pow(clamp((pos - mv.t0) / Math.max(mv.t1 - mv.t0, 1e-4), 0, 1), mv.ease);
-        const most = mv.drag ? hops : ((pos - mv.t0) * L.speed * (calm ? 0.6 : 1)) / S.hop;        // a dragged spot keeps up with its note; a wandering one is no faster than its line
-        const g = Math.min(hops * f, most, hops - 1e-4), i = Math.floor(g), fr = g - i;
+        const g = Math.min(hops * f, hops - 1e-4), i = Math.floor(g), fr = g - i;
         const A = S.pos[mv.path[i]], B = S.pos[mv.path[i + 1]], p = norm([A[0] + (B[0] - A[0]) * fr, A[1] + (B[1] - A[1]) * fr, A[2] + (B[2] - A[2]) * fr]);
         h.p = p; h.cell = fr < 0.5 ? mv.path[i] : mv.path[i + 1]; h.seg = [mv.path[i], mv.path[i + 1], fr];
       }
@@ -498,8 +661,8 @@ export class ScreenStage {
     this.heads = heads.filter((h) => !h.gone);
     this.rings = this.rings.filter((r) => pos - r.t0 < LINES[r.line].ringLife * 3.5);
     for (const r of this.rings) { const L = LINES[r.line], age = pos - r.t0; r.rho = age * L.ringSpeed * (calm ? 0.55 : 1); r.I = r.strength * Math.exp(-age / L.ringLife) * (calm ? 0.6 : 1) * Math.min(1, age / 0.01); }
+    const hd = this.idleK > 0.01 && this.idlers.length ? this.heads.concat(this.idlers) : this.heads, nh = hd.length;
     // the afterglow: a cell keeps the light of the spots that passed, per line
-    const hd = this.heads, nh = hd.length;
     for (let l = 0; l < 3; l++) {
       const gI = S.glowI[l], gC = S.glowC[l], decay = Math.exp(-dBars / LINES[l].glow), inv = 1 / (2 * LINES[l].sigma * LINES[l].sigma);
       for (let c = 0; c < n; c++) {
@@ -511,9 +674,14 @@ export class ScreenStage {
       }
     }
     // the tide: a dim wash in the page's cyan that travels round the sphere once in sixteen bars
-    const ta = (pos / 16) * TAU, tide = [Math.cos(ta) * 0.94, 0.34 * Math.sin(ta * 2), Math.sin(ta) * 0.94];
-    // every face: the three lines at its place, mixed; then the cell's colour, the ports, the light it spills
-    const light = S.light, cellCol = S.cellCol, I = [0, 0, 0], C = [0, 0, 0, 0, 0, 0, 0, 0, 0], rings = this.rings, nr = rings.length;
+    const ta = (this.lt / 16) * TAU, tide = [Math.cos(ta) * 0.94, 0.34 * Math.sin(ta * 2), Math.sin(ta) * 0.94], tideUp = 1 + 1.1 * this.idleK;
+    // the drums of this frame, and the playhead: the line that crosses the near side once a bar
+    this._drums(pos, turn);
+    const kb = this.kb, sb = this.sb, nk = this.nk, ns = this.ns, fLon = S.faceLon, fLat = S.faceLat, fCos = S.faceCos;
+    const playOn = !calm && this.idleK < 0.5 && this.score.has(Math.floor(pos)), playLon = stepLon(Math.min(pos - Math.floor(pos), 1)) + turn;
+    // every face: the three lines at its place, mixed, and the drums over them; then the cell's colour, the ports, the light it spills
+    const light = S.light, cellCol = S.cellCol, I = [0, 0, 0], C = [0, 0, 0, 0, 0, 0, 0, 0, 0], rings = this.rings, nr = rings.length, fedKeep = Math.exp(-dBars / 6);
+    let fedSum = 0; if (this.fedMean === undefined) this.fedMean = 0;
     for (let c = 0; c < n; c++) {
       let cr = 0, cg = 0, cb = 0;
       for (let k = 0; k < 20; k++) {
@@ -532,32 +700,67 @@ export class ScreenStage {
         // where lines meet the strongest sets the hue and the others tint it; the brightness is bounded
         const w0 = I[0] * I[0] * I[0], w1 = I[1] * I[1] * I[1], w2 = I[2] * I[2] * I[2], ws = w0 + w1 + w2 + 1e-6;
         const top = Math.max(I[0], I[1], I[2]), T = Math.min(1.2, top + 0.2 * (I[0] + I[1] + I[2] - top));
-        const td = 0.07 + 0.13 * Math.max(0, ux * tide[0] + uy * tide[1] + uz * tide[2]) ** 2, quiet = 1 - Math.min(1, T * 3.6);
+        const td = (0.07 + 0.13 * Math.max(0, ux * tide[0] + uy * tide[1] + uz * tide[2]) ** 2) * tideUp, quiet = 1 - Math.min(1, T * 3.6);
         let r = (C[0] * w0 + C[3] * w1 + C[6] * w2) / ws, g = (C[1] * w0 + C[4] * w1 + C[7] * w2) / ws, b = (C[2] * w0 + C[5] * w1 + C[8] * w2) / ws;
         const grey = 0.3 * r + 0.5 * g + 0.2 * b, E = T * (0.55 + 0.75 * T);                 // a mixed colour keeps its strength of hue; a bright spot is brighter than twice a dim one
         r = Math.max(0, grey + (r - grey) * 1.3) * E + 0.2 * td * (0.12 + 0.88 * quiet); g = Math.max(0, grey + (g - grey) * 1.3) * E + 0.86 * td * (0.12 + 0.88 * quiet); b = Math.max(0, grey + (b - grey) * 1.3) * E + 0.9 * td * (0.12 + 0.88 * quiet);
+        // the drums: the kick's warm glow and ring at the nearer of its step's two places, the snare's cold streak along its step's line
+        if (nk || ns || playOn) {
+          let kv = 0, sv = 0, pv = 0;
+          for (let j = 0; j < nk; j++) {
+            const o = j * 8, a = ux * kb[o] + uz * kb[o + 2], dd = 2 - 2 * (uy * kb[o + 1] + (a > 0 ? a : -a)); if (dd > 1.7) continue;
+            kv += kb[o + 3] * Math.exp(-dd * kb[o + 4]);
+            if (dd < 0.05) kv += 0.22 * kb[o + 7] * Math.exp(-dd * 89);                           // its mark: the panel at the hit's place
+            if (kb[o + 5] > 0.01) { const d = Math.sqrt(dd) - kb[o + 6]; kv += kb[o + 5] * Math.exp(-d * d * 51); }
+          }
+          const lon = fLon[fi], cl = fCos[fi], dy = fLat[fi] - SNARE_LAT;
+          for (let j = 0; j < ns; j++) {
+            const o = j * 4; let dl = lon - sb[o]; dl -= Math.PI * Math.round(dl / Math.PI); const x = dl * cl; if (x > 0.4 || x < -0.4) continue;
+            sv += sb[o + 1] * Math.exp(-x * x * 69.2 - dy * dy * sb[o + 2]) + 0.22 * sb[o + 3] * Math.exp(-x * x * 139 - dy * dy * 16);       // the streak, and its mark
+          }
+          if (playOn) { let dl = lon - playLon; dl -= Math.PI * Math.round(dl / Math.PI); const x = dl * cl; if (x < 0.2 && x > -0.2) pv = 0.11 * Math.exp(-x * x * 139); }
+          if (kv > 1.3) kv = 1.3; if (sv > 1.3) sv = 1.3;
+          r += kv * KICK_RGB[0] + sv * SNARE_RGB[0] + pv * 0.7; g += kv * KICK_RGB[1] + sv * SNARE_RGB[1] + pv * 0.9; b += kv * KICK_RGB[2] + sv * SNARE_RGB[2] + pv;
+        }
         for (let v = 0; v < 3; v++) { const o = (fi * 3 + v) * 6; light[o] = r; light[o + 1] = g; light[o + 2] = b; }
         cr += r; cg += g; cb += b;
       }
-      cellCol[c * 3] = cr / 20; cellCol[c * 3 + 1] = cg / 20; cellCol[c * 3 + 2] = cb / 20;
+      cr /= 20; cg /= 20; cb /= 20; cellCol[c * 3] = cr; cellCol[c * 3 + 1] = cg; cellCol[c * 3 + 2] = cb;
+      // a cell is lit when its mean panel colour shows at half of full scale or more. It wants light the more, the
+      // longer it has been dark and the less lit time it has had in the last bars against the others
+      const lit = Math.max(cr, cg, cb) >= 0.3546;
+      if (lit) S.dark[c] = 0; else S.dark[c] += dBars;
+      S.fed[c] = S.fed[c] * fedKeep + (lit ? dBars : 0); fedSum += S.fed[c];
+      S.want[c] = clamp(0.4 * Math.min(1, S.dark[c] / 3) + 0.6 * clamp(1.25 - S.fed[c] / (this.fedMean + 0.02), 0, 1), 0, 1);
     }
+    this.fedMean = fedSum / n;
     let ar = 0, ag = 0, ab = 0;
-    const spark = calm ? 0 : this.spark, seed = this.sparkSeed;
+    const spark = calm ? 0 : this.spark, seed = this.sparkSeed, pLon = S.portLon, pCos = S.portCos, pLat = S.portLat, pDir = S.portDir, marks = nk || ns;
     for (let c = 0; c < n; c++) {
-      let sr = 0, sg = 0, sb = 0; const nb = S.nb[c];
-      for (const k of nb) { sr += cellCol[k * 3]; sg += cellCol[k * 3 + 1]; sb += cellCol[k * 3 + 2]; }
-      sr /= nb.length; sg /= nb.length; sb /= nb.length;
-      for (let v = 0; v < 60; v++) { const o = (c * 60 + v) * 6 + 3; light[o] = sr; light[o + 1] = sg; light[o + 2] = sb; }
+      let sr = 0, sg = 0, sb2 = 0; const nb = S.nb[c];
+      for (const k of nb) { sr += cellCol[k * 3]; sg += cellCol[k * 3 + 1]; sb2 += cellCol[k * 3 + 2]; }
+      sr /= nb.length; sg /= nb.length; sb2 /= nb.length;
+      for (let v = 0; v < 60; v++) { const o = (c * 60 + v) * 6 + 3; light[o] = sr; light[o + 1] = sg; light[o + 2] = sb2; }
       for (let i = 0; i < 12; i++) {
-        const o = (c * 12 + i) * 3, tw = spark > 0.02 ? spark * (((Math.sin((c * 12 + i) * 12.9898 + seed * 78.233) * 43758.5453) % 1 + 1) % 1 > 0.82 ? 1 : 0) : 0;
-        S.portCol[o] = cellCol[c * 3] * 0.85 + 0.05 + tw * 0.7; S.portCol[o + 1] = cellCol[c * 3 + 1] * 0.85 + 0.06 + tw * 0.75; S.portCol[o + 2] = cellCol[c * 3 + 2] * 0.85 + 0.06 + tw * 0.75;
+        const pi = c * 12 + i, o = pi * 3; let tw = 0, ph = 0, km = 0, sm = 0;
+        if (marks) {                                          // the bar's pattern, to read: a warm point where a kick falls, a short cold line where a snare falls
+          const px = pDir[o], py = pDir[o + 1], pz = pDir[o + 2];
+          for (let j = 0; j < nk; j++) { const q = j * 8; if (kb[q + 7] < 0.004) continue; const a = px * kb[q] + pz * kb[q + 2], dd = 2 - 2 * (py * kb[q + 1] + (a > 0 ? a : -a)); if (dd < 0.12) km += 1.7 * kb[q + 7] * Math.exp(-dd * 42); }
+          const dy = pLat[pi] - SNARE_LAT;
+          if (dy < 0.75 && dy > -0.75) for (let j = 0; j < ns; j++) { const q = j * 4; if (sb[q + 3] < 0.004) continue; let dl = pLon[pi] - sb[q]; dl -= Math.PI * Math.round(dl / Math.PI); const x = dl * pCos[pi]; if (x < 0.2 && x > -0.2) sm += 1.7 * sb[q + 3] * Math.exp(-x * x * 100 - dy * dy * 6); }
+        }
+        if (playOn) {                                         // the playhead is a line of lit ports; the hats make the ports round it sparkle
+          let dl = pLon[pi] - playLon; dl -= Math.PI * Math.round(dl / Math.PI); const x = dl * pCos[pi], xx = x * x;
+          if (xx < 0.5) { ph = 0.34 * Math.exp(-xx * 165); if (spark > 0.02 && ((Math.sin(pi * 12.9898 + seed * 78.233) * 43758.5453) % 1 + 1) % 1 > 0.5) tw = spark * Math.exp(-xx * 9); }
+        }
+        S.portCol[o] = cellCol[c * 3] * 0.85 + 0.05 + tw * 0.7 + ph * 0.8 + km * KICK_RGB[0] + sm * SNARE_RGB[0]; S.portCol[o + 1] = cellCol[c * 3 + 1] * 0.85 + 0.06 + tw * 0.75 + ph * 0.95 + km * KICK_RGB[1] + sm * SNARE_RGB[1]; S.portCol[o + 2] = cellCol[c * 3 + 2] * 0.85 + 0.06 + tw * 0.75 + ph + km * KICK_RGB[2] + sm * SNARE_RGB[2];
       }
       ar += cellCol[c * 3]; ag += cellCol[c * 3 + 1]; ab += cellCol[c * 3 + 2];
     }
     this.avg = [ar / n, ag / n, ab / n];
     // the seams: each in the colours of its two cells; a spot on its way from one cell to the next lights the seam between them
     const pulse = S.seamPulse; pulse.fill(0);
-    for (const h of this.heads) if (h.seg && h.I > 0.03) {
+    for (const h of hd) if (h.seg && h.I > 0.03) {
       const [a, b, fr] = h.seg, s = S.seamOf.get(a < b ? a * n + b : b * n + a); if (s === undefined) continue;
       const along = (fr - 0.32) / 0.36;                       // the seam spans the middle third of the way from cell to cell
       if (along > -0.6 && along < 1.6) { pulse[s * 2] = a < b ? along : 1 - along; pulse[s * 2 + 1] = Math.max(pulse[s * 2 + 1], Math.min(1.2, h.I * 1.3)); }
@@ -581,7 +784,7 @@ export class ScreenStage {
   _loop(ts) {
     if (!this.running) return;
     this.raf = requestAnimationFrame(this._loop);
-    const dt = Math.min(100, ts - (this.last || ts)); this.last = ts;
+    const dt = clamp(ts - (this.last || ts), 0, 100); this.last = ts;      // the first frame's time may lie before the call of start()
     this.frameMs += (dt - this.frameMs) * 0.05; this.frames++;
     if (this.frames > 90 && this.frameMs > 26 && this.scale > 0.5) {         // too slow: a lower resolution, the same picture
       if (++this.slow > (this.frameMs > 60 ? 20 : 60)) { this.scale = Math.max(0.5, this.scale * (this.frameMs > 60 ? 0.6 : 0.8)); this.slow = 0; this.frames = 0; this.resize(); }
@@ -589,22 +792,35 @@ export class ScreenStage {
     if (this.gl && !this.lost) this._draw(dt / 1000);
   }
 
+  // one step of the program: the time, the drums' breath and sparkle, the turn, the lights. No drawing.
+  _advance(dt) {
+    const calm = this.calm, real = performance.now() / 1000, barDur = this._barDur();
+    const pos = this._pos(this._now()), dBars = this.pos2 === undefined ? 0 : clamp(pos - this.pos2, 0, 0.5);
+    if (this.curIndex >= 0 && (this.pos2 === undefined || pos > this.pos2 + 1e-7)) this.movedAt = real;
+    this.pos2 = pos; this.pos = pos;
+    // nobody plays: before the first bar, or when the clock has stood for more than a bar
+    this.idleK += ((this.curIndex < 0 || real - this.movedAt > 1.3 * barDur ? 1 : 0) - this.idleK) * Math.min(1, dt * 1.5);
+    // the drums' part in the whole picture: a kick is a small breath of the sculpture, the hats make ports sparkle
+    const sc = this.score.get(Math.floor(pos)), step = Math.floor((pos % 1) * 16) + Math.floor(pos) * 16;
+    if (sc && step !== this.stepWas) { this.stepWas = step; const t = ((step % 16) + 16) % 16; if (sc.kick[t] > 0) this._pulse(1); if (sc.hat[t] > 0) { this.spark = 0.5 + 0.5 * sc.hat[t]; this.sparkSeed = step; this.sparkRate = sc.open[t] > 0 ? 5 : 14; } }
+    this.kick *= Math.exp(-dt * 6.5); this.spark *= Math.exp(-dt * this.sparkRate);
+    if (this.analyser && this.spec) { this.analyser.getByteFrequencyData(this.spec); let s = 0; for (let i = 0; i < this.spec.length; i += 4) s += this.spec[i]; this.level += ((0.85 + 0.4 * clamp((s / (this.spec.length / 4) / 255) * 2.2, 0, 1)) - this.level) * 0.1; } else this.level += (1 - this.level) * 0.1;
+    this.turn += dt * (calm ? 0.045 : 0.075);
+    const turn = this.view.turn === null ? this.turn : this.view.turn, own = dBars + (this.idleK * dt) / barDur;       // the lights' own time runs on when nobody plays
+    this.lt += own;
+    if (this.idleK > 0.01) this._idle(dt, this.idleK);
+    this._lights(pos, own, turn);
+    return turn;
+  }
+
   _draw(dt) {
     const gl = this.gl, c = this.canvas, P = this.prog;
     if (c.clientWidth && Math.abs(c.clientWidth * Math.min(2, devicePixelRatio || 1) * this.scale - c.width) > 2) this.resize();
     if (!this.fbo || !this.S) this.resize();
     const S = this.S, F = this.fbo, W = c.width, H = c.height, calm = this.calm, aspect = W / Math.max(1, H);
-    const pos = this._pos(this._now()), dBars = this.pos2 === undefined ? 0 : clamp(pos - this.pos2, 0, 0.5);
-    this.pos2 = pos; this.pos = pos;
-    // the drums: a kick is a breath of the whole sculpture, the hats make ports twinkle
-    const sc = this.score.get(Math.floor(pos)), step = Math.floor((pos % 1) * 16) + Math.floor(pos) * 16;
-    if (sc && step !== this.stepWas) { this.stepWas = step; const t = ((step % 16) + 16) % 16; if (sc.kicks.includes(t)) this._pulse(1); if (sc.hats.includes(t)) { this.spark = 1; this.sparkSeed = step; } }
-    this.kick *= Math.exp(-dt * 6.5); this.spark *= Math.exp(-dt * 14);
-    if (this.analyser && this.spec) { this.analyser.getByteFrequencyData(this.spec); let s = 0; for (let i = 0; i < this.spec.length; i += 4) s += this.spec[i]; this.level += ((0.85 + 0.4 * clamp((s / (this.spec.length / 4) / 255) * 2.2, 0, 1)) - this.level) * 0.1; } else this.level += (1 - this.level) * 0.1;
-    this._lights(pos, dBars);
+    const turn = this._advance(dt);
     // the camera: the sphere fits the canvas, a little above its middle; on an upright canvas it fills the width
-    this.turn += dt * (calm ? 0.045 : 0.075);
-    const turn = this.view.turn === null ? this.turn : this.view.turn, fov = 0.56, tanF = Math.tan(fov / 2), outer = 1 + S.rc * 1.05;
+    const fov = 0.56, tanF = Math.tan(fov / 2), outer = 1 + S.rc * 1.05;
     const tall = aspect < 0.9, shift = 0.1, fit = Math.min(0.78, 0.93 * aspect) * this.view.zoom;
     const dist = outer / Math.sin(Math.atan(Math.min(fit * tanF, 5))), eye = [0, 0.42, Math.sqrt(Math.max(0.1, dist * dist - 0.42 * 0.42))];
     const view = M.look(eye, [0, 0, 0], [0, 1, 0]), proj = M.persp(fov, aspect, 0.3, 30); proj[9] = -shift;
@@ -653,7 +869,7 @@ export class ScreenStage {
     gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, F.q2.tex); gl.uniform1i(p.u.uBloom, 1);
     gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, F.e2.tex); gl.uniform1i(p.u.uHaze, 2);
     gl.uniform2f(p.u.uTexel, 1 / W, 1 / H);
-    gl.uniform4f(p.u.uMix, 0.75, 0.62, 0, 1.2 * this.level * (1 + (calm ? 0 : 0.13 * this.kick)));
+    gl.uniform4f(p.u.uMix, 0.75, 0.62, 0, 1.2 * this.level * (1 + (calm ? 0 : 0.07 * this.kick)));
     gl.drawArrays(gl.TRIANGLES, 0, 6);
     gl.activeTexture(gl.TEXTURE0);
   }
