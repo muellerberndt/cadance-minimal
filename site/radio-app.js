@@ -1,11 +1,15 @@
-// Cadance Radio (radio.html): one screen of visuals; the Auto DJ (autodj.js) mixes the track store's MP3s out of sight
-// on three file decks, each through a channel strip (EQ, filters, the DJ effects, a fader) as on the mixer, all on one
-// bar clock of the AudioContext: bar k starts at clock.t0 + k * 240 / bpm, and a deck's MP3 starts on a bar line
+// Cadance Radio (radio.html): one screen of visuals; the Auto DJ (autodj.js) mixes the track store's MP3s on three
+// file decks, each through a channel strip (EQ, filters, the DJ effects, a fader) as on the mixer, all on one bar
+// clock of the AudioContext: each bar line comes 240 / bpm after the one before, and a deck's MP3 starts on a bar line
 // (AudioBufferSourceNode.start(when, offset)), so two decks run in time to the sample. The views follow the deck in
-// front: the brain (brainviz.js, the 3D brain lit by the recorded view of the bar that sounds, from the track's note
-// file, or by the audio), the instruments (the bar's drum steps and lines, lit on the step), and the other modes.
+// front: the brain stage (brainstage.js, from the track's note file: the bars as the brain wrote them, with its
+// recorded view), the devices (devices.js), brainviz's MRI and other modes, and the Auto DJ's decks. The page writes
+// nothing of what plays (owner, 27 Nov): no brain names, no track numbers, no DJ text; the controls are icons, and the
+// state (radio or live) is in the settings. For tests, window.__radioApp.state() reads it all.
 import { AutoDJ } from './autodj.js';
+import { BrainStage } from './brainstage.js';
 import { BrainViz, MODE_GROUPS } from './brainviz.js';
+import { Devices } from './devices.js';
 import { FxUnit } from './djfx.js';
 
 const R = window.__radio;
@@ -28,7 +32,8 @@ const LAW = {        // knob position 0..1 -> value, as on the mixer
 const calm = () => !!store.get('calm', false) || matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 // ---------- audio and the bar clock ----------
-let ctx = null, master = null, vol = null, bpm = 122.14, dj = null, note = '', starting = null, trackNo = 0;
+let ctx = null, master = null, vol = null, bpm = R.defaultBpm || 145, dj = null, starting = null, trackNo = 0;
+const notes = [];                    // what went wrong, for the console and state(): a failed track is retried silently
 const latency = () => (ctx ? (ctx.outputLatency || 0) + (ctx.baseLatency || 0) : 0);
 const later = (t, fn) => { const ms = Math.max(0, (t + latency() - (ctx ? ctx.currentTime : 0)) * 1000); ms > 4 ? setTimeout(fn, ms) : fn(); };
 const clock = { t0: 0, next: 0, bar: 0, step: -1, stepAt: 0, timer: null };
@@ -45,6 +50,7 @@ function ensureAudio() {
     master.connect(lim); lim.connect(vol); vol.connect(c.destination);
     ctx = c;
     viz.listen(c, master);
+    const an = c.createAnalyser(); an.fftSize = 2048; master.connect(an); hero.setAudio(an);
     for (const d of decks) d.build();
     clock.t0 = clock.next = c.currentTime + 0.3; clock.bar = 0;
     clock.timer = setInterval(tick, 25);
@@ -57,7 +63,7 @@ function tick() {                     // the bar lines within the next 150 ms: t
     const t = clock.next, G = clock.bar++;
     clock.next = t + barLen();
     try { if (dj) dj.onBar(G, t); } catch (e) { say(`auto dj: ${e.message}`); }
-    for (const d of decks) later(t, () => d.onBar(G));
+    for (const d of decks) later(t, () => d.onBar(G, t));
     const len = barLen();
     for (let s = 0; s < 16; s++) later(t + (s * len) / 16, () => { clock.step = s; clock.stepAt = performance.now(); stepViews(s); });
     if (G % ((dj && dj.section) || 32) === 0) later(t, () => vjSection(G));
@@ -95,7 +101,7 @@ class Deck {
     this.fx.set(this.p.fx, t);
   }
   setFx(type, opts) { this.p.fxType = type; if (this.fx) this.fx.setType(type, opts); }
-  setRole(role) { this.role = role; }
+  setRole(role) { if (role === 'primary' && this.role !== 'primary') pulse('swap', this.d); this.role = role; }
   target(key) {
     const n = this.n;
     return { lo: [n.lo.gain, LAW.eq.val], mid: [n.mid.gain, LAW.eq.val], hi: [n.hi.gain, LAW.eq.val], hp: [n.hp.frequency, (p) => LAW.hp.val(p) || 10],
@@ -126,7 +132,7 @@ class Deck {
   autoSet(key, v, t) { if (key === 'fx') this.fx.step(v, t); else { const [param, law] = this.target(key); param.setValueAtTime(law(v), t); } }
   autoLine(key, v, t) { if (key === 'fx') this.fx.ramp(v, t); else { const [param, law] = this.target(key); param.linearRampToValueAtTime(law(v), t); } }
   autoShow(values) { Object.assign(this.p, values); }
-  gate(t0, len, depth) { if (this.fx) this.fx.scheduleGate(t0, len, depth); }
+  gate(t0, len, depth) { if (this.fx) this.fx.scheduleGate(t0, len, depth); if (depth > 0 && this.p.fxType === 'gater') pulse('gate', this.d); }
   // ---- a track: its MP3 starts on the next bar line (later lines while it decodes: the track then starts a few bars in)
   cueTrack(track) {
     this.endTrack();
@@ -134,6 +140,7 @@ class Deck {
     this.startBar = clock.bar; const line = clock.next;          // the next bar line is bar clock.bar
     trackNo++; track.no = trackNo;
     (R.onDeck ||= new Set()).add(track.id);
+    pulse('cue', this.d);
     R.decode(track.id).then((buf) => this.play(buf, track, line)).catch((e) => {
       if (this.track !== track) return;
       say(`${e.message}: the next track is tried`);
@@ -146,7 +153,7 @@ class Deck {
     let k = 0, when = line;
     if (when < soon) { k = Math.ceil((soon - when) / len); when += k * len; }       // decoded late: in on a later line
     const s = ctx.createBufferSource(), g = ctx.createGain();
-    s.buffer = buf;
+    s.buffer = buf; this.buffer = buf;                    // the decoded track, for the mixer view's waveform
     const n = track.bars.length;
     if (n >= 32 && buf.duration >= n * len) { s.loop = true; s.loopStart = (n - 32) * len; s.loopEnd = n * len; }  // past the end its last section goes round
     s.connect(g); g.connect(this.n.pre);
@@ -154,18 +161,19 @@ class Deck {
     this.src = { s, g };
     if (window.__radioApp) (window.__radioApp.starts ||= []).push({ deck: this.d, id: track.id, when, line, offset: k * len, bar: this.startBar + k });
   }
-  onBar(G) {
+  onBar(G, t) {
     if (!this.playing || !this.track) return;
     const i = G - this.startBar;
     if (i < 0) return;
-    const n = this.track.bars.length, k = i < n ? i : Math.max(0, n - 32 + ((i - n) % 32));
-    this.trackAt = i + 1; this.now = this.track.bars[k] || null; this.barIndex = k;
+    const n = this.track.bars.length, k = barOf(n, i);
+    this.trackAt = i + 1; this.lineAt = t; this.now = this.track.bars[k] || null; this.barIndex = k;
     frontBar(this);
   }
   endTrack() {
     const tr = this.track;
     if (!tr) return;
-    this.track = null; this.playing = false; this.now = null; this.failed = false;
+    this.track = null; this.playing = false; this.now = null; this.failed = false; this.buffer = null;
+    pulse('leave', this.d);
     if (this.src && ctx) {
       const { s, g } = this.src, t = ctx.currentTime;
       g.gain.setTargetAtTime(0, t, 0.01);
@@ -182,155 +190,206 @@ class Deck {
   light() {}
 }
 const decks = Array.from({ length: DECKS }, (_, d) => new Deck(d));
+// the Auto DJ's moments, for a view that marks them: 'cue' (a track goes onto a deck), 'swap' (a deck becomes the
+// primary), 'leave' (a deck's track ends), 'gate' (the gater opens on a deck this bar)
+const pulseTo = [];
+function pulse(kind, deck) { for (const fn of pulseTo) { try { fn(kind, deck); } catch (e) { console.warn(e); } } }
 function front() {                                              // the primary deck, or the loudest deck that plays
   const playing = decks.filter((c) => c.playing && c.now);
   return playing.find((c) => c.role === 'primary') || playing.sort((x, y) => y.p.fader - x.p.fader)[0] || null;
 }
 
 // ---------- the views ----------
+// brain (the default): the brain stage (brainstage.js), the whole brain as it hears, plans and plays with its memory
+// above, given the bars as they sound on the deck in front; with VJ on, its scene changes on the Auto DJ's section
+// lines; without a canvas context it is brainviz's 3D brain. devices: the drum machine and the three synth voices of
+// the track in front (devices.js), with the sounds of the pool the track names; a deck that blends in as a small strip.
+// MRI: brainviz's MRI, lit by the recorded view. DJ: the Auto DJ's three decks, read-only, as the autopilot moves them.
+// more: brainviz's other modes.
 const viz = new BrainViz($('viz'), { captions: false });
-const inst = $('inst'), ig = inst.getContext('2d');
-const VIEW_BRAIN = 'compact', VJ_SCENES = ['compact', 'connectome', 'storm'];
-let view = store.get('view', 'brain'), vizTrack = null;
+const hero = new BrainStage($('hero'), { calm: calm() });
+const HERO = hero.ok;
+const devv = new Devices($('devCanvas'));
+const djc = $('djv'), dg = djc.getContext('2d');
+const MAIN = [['brain', 'brain'], ['devices', 'devices'], ['mri', 'MRI'], ['dj', 'DJ']];
+const known = (v) => MAIN.some(([x]) => x === v) || String(v).startsWith('m:');
+let view = known(store.get('view', 'brain')) ? store.get('view', 'brain') : 'brain';
+let vizTrack = null, heroTrack = null, devTrack = null;
 const vizHistory = [];
+fetch('brain3d/brain.b3d').then((r) => (r.ok ? r.arrayBuffer() : null)).then((b) => { if (b) hero.setBrain(b); }).catch(() => {});
+// the bar a deck plays at its i-th bar: past the track's end its last 32 bars go round
+const barOf = (n, i) => (i < n ? i : Math.max(0, n - 32 + ((i - n) % 32)));
 function frontBar(d) {                                          // a deck began a bar: the views follow the deck in front
   const f = front();
   if (!f || f !== d || !d.now) return;
-  if (vizTrack !== d.track) { vizTrack = d.track; vizHistory.length = 0; viz.setLayout(d.track.layout || null); }
-  const nb = d.now;
+  const tr = d.track, nb = d.now, i = d.trackAt - 1, n = tr.bars.length;
+  if (vizTrack !== tr) { vizTrack = tr; vizHistory.length = 0; viz.setLayout(tr.layout || null); }
   vizHistory.push({ bar: nb.bar, tokens: (nb.tokens || [1, 1, 1, 1]).slice(), mods: nb.mods }); if (vizHistory.length > 96) vizHistory.shift();
-  viz.setBar({ ...nb, mode: 'brain', checkpoint: d.track.checkpoint }, vizHistory);
+  viz.setBar({ ...nb, mode: 'brain', checkpoint: tr.checkpoint }, vizHistory);
+  // the stage counts bars from the deck's first, so a track that goes round stays one stream; a new track in front
+  // brings the bars it has played so far (the ear shows 1 to 16 bars back, the memory ring up to 128)
+  if (heroTrack !== tr) {
+    heroTrack = tr; hero.setLayout(tr.layout || null);
+    for (let j = Math.max(0, i - 130); j < i; j++) hero.setBar(j, tr.bars[barOf(n, j)]);
+  }
+  hero.setClock({ ctx, bpm, barZeroTime: d.lineAt - i * barLen() });
+  hero.setBar(i, nb);
+  devBar(d, tr, nb, i > 0 ? tr.bars[barOf(n, i - 1)] : nb);
+}
+let devNote = '';
+async function devBar(d, tr, nb, prev) {
+  devv.setBar(nb, prev);
+  if (devTrack === tr) return;
+  devTrack = tr;
+  const h = R.track(tr.id), pool = await R.pool(h && h.notes && h.notes.pool);
+  if (devTrack !== tr) return;
+  devv.setPool(pool);
+  devNote = pool ? '' : `no sound pool for ${tr.id} in the store`;
+  if (!pool) say(devNote);
+}
+function secondDeck() {                                         // a deck beside the one in front that is heard
+  const f = front(), o = decks.find((c) => c !== f && c.playing && c.now && c.p.fader > 0.05);
+  return o ? { bar: o.now, level: o.p.fader } : null;
 }
 function stepViews(s) {
   const f = front(), p = f && f.now && f.now.patterns && f.now.patterns[0];
   viz.step(s, p && p.hits && p.hits.kick ? p.hits.kick[s] > 0 : s % 4 === 0);
+  devv.setStep(s);
 }
+const VJ_SCENES = ['compact', 'connectome', 'storm'];         // brainviz's, when the stage cannot draw
 function vjSection(G) {                       // VJ: a new brain scene on the Auto DJ's section lines
   if (!store.get('vj', true) || calm() || view !== 'brain' || !G) return;
+  if (HERO) { const s = hero.scenes(); hero.setScene(s[(s.indexOf(hero.scene) + 1) % s.length]); return; }
   const i = VJ_SCENES.indexOf(viz.modeName);
   viz.setMode(VJ_SCENES[(i + 1) % VJ_SCENES.length]);
 }
-// the instruments: the bar that sounds on the deck in front, step by step
-const ROWS = [['kick', ['kick']], ['snare', ['snare', 'clap']], ['hats', ['ch', 'oh', 'cym']]];
-const LINES = [['bass', 1], ['lead', 2], ['air', 3]];
-function drawInstruments() {
-  const D = devicePixelRatio || 1, r = inst.getBoundingClientRect();
-  if (inst.width !== Math.round(r.width * D) || inst.height !== Math.round(r.height * D)) { inst.width = Math.round(r.width * D); inst.height = Math.round(r.height * D); }
-  const W = inst.width, H = inst.height, g = ig;
-  g.fillStyle = '#000'; g.fillRect(0, 0, W, H);
-  const f = front(), b = f && f.now, s = clock.step;
-  const left = Math.round(W * 0.12), right = Math.round(W * 0.94), top = Math.round(H * 0.16), cw = (right - left) / 16;
-  g.font = `${Math.round(12 * D)}px ui-monospace, Menlo, monospace`; g.textBaseline = 'middle';
-  if (!b || !b.patterns) {
-    g.fillStyle = 'rgba(74,241,242,.62)'; g.textAlign = 'center';
-    g.fillText(f ? 'this track has no note file: the instruments show the notes of tracks that carry one' : 'the instruments light up when a track plays', W / 2, H / 2);
-    return;
-  }
-  const pats = b.patterns || [], tok = b.tokens || [], mods = b.mods || [];
-  const rowH = Math.round((H * 0.66) / 7), glow = (on, now) => (now ? '#e8ffff' : on ? '#4af1f2' : 'rgba(74,241,242,.10)');
-  let y = top;
-  g.textAlign = 'right';
-  const drumHits = (pats[0] && pats[0].hits) || {};
-  for (const [name, keys] of ROWS) {
-    const row = keys.map((k) => drumHits[k]).find((a) => Array.isArray(a)) || [];
-    g.fillStyle = 'rgba(201,251,251,.85)'; g.fillText(name, left - 12 * D, y + rowH / 2);
-    for (let i = 0; i < 16; i++) {
-      const v = +row[i] || 0, x = left + i * cw, now = i === s && v > 0;
-      g.fillStyle = glow(v > 0, now); g.globalAlpha = v > 0 ? 0.4 + 0.6 * Math.min(1, v) : 1;
-      if (now) { g.shadowColor = '#4af1f2'; g.shadowBlur = 24 * D; }
-      g.fillRect(x + 2 * D, y + 3 * D, cw - 4 * D, rowH - 6 * D);
-      g.shadowBlur = 0; g.globalAlpha = 1;
-    }
-    y += rowH;
-  }
-  y += rowH * 0.4;
-  for (const [name, l] of LINES) {
-    const p = pats[l], notes = (p && p.notes) || [], lens = (p && p.len) || [], on = tok[l] > 0;
-    const m = mods[l] || [0, 0];
-    g.fillStyle = on ? 'rgba(201,251,251,.85)' : 'rgba(201,251,251,.3)'; g.fillText(name, left - 12 * D, y + rowH / 2);
-    g.fillStyle = 'rgba(74,241,242,.5)'; g.textAlign = 'left';
-    g.fillText(on ? `sound ${tok[l]} · filter ${fmt(m[0])} · space ${fmt(m[1])}` : 'silent', right + 8 * D - (right - left) - 0, y - rowH * 0.18);
-    g.textAlign = 'right';
-    const pitched = notes.filter((n) => n != null), lo = pitched.length ? Math.min(...pitched) : 0, hi = pitched.length ? Math.max(...pitched) : 1;
-    for (let i = 0; i < 16; i++) {
-      const x = left + i * cw;
-      g.fillStyle = 'rgba(74,241,242,.07)'; g.fillRect(x + 2 * D, y + 3 * D, cw - 4 * D, rowH - 6 * D);
-      const n = notes[i];
-      if (on && n != null) {
-        const span = Math.max(1, (+lens[i] || 1)), hgt = (rowH - 10 * D) * (hi > lo ? (n - lo) / (hi - lo) : 0.5);
-        const now = s >= i && s < i + span;
-        if (now) { g.shadowColor = '#4af1f2'; g.shadowBlur = 24 * D; }
-        g.fillStyle = now ? '#e8ffff' : '#4af1f2';
-        g.fillRect(x + 2 * D, y + rowH - 6 * D - hgt - 4 * D, cw * span - 4 * D, 5 * D);
-        g.shadowBlur = 0;
-      }
-    }
-    y += rowH;
-  }
-  // the step that sounds
-  if (s >= 0) { g.strokeStyle = 'rgba(232,255,255,.55)'; g.lineWidth = D; g.strokeRect(left + s * cw + 0.5, top - 6 * D, cw - 1, y - top + 6 * D); }
-  g.textAlign = 'left'; g.fillStyle = 'rgba(74,241,242,.62)';
-  const blend = decks.filter((c) => c.playing && c.now && c !== f && c.p.fader > 0.05);
-  g.fillText(`deck ${f.d + 1} · bar ${f.barIndex + 1} of ${f.track.bars.length}${blend.length ? ` · deck ${blend[0].d + 1} blends in (${Math.round(blend[0].p.fader * 100)}%)` : ''}`, left, top - 22 * D);
-}
-const fmt = (v) => `${Math.round(((+v || 0) + 1) * 50)}%`;
 
-// the visual mode control: the brain (3D) first, then the instruments, then the other modes
-const modeSel = $('modeSel');
-{
-  const og = (label, items) => { const o = document.createElement('optgroup'); o.label = label; for (const [v, t] of items) o.appendChild(new Option(t, v)); modeSel.appendChild(o); };
-  og('brain', [['brain', 'brain (3D)'], ...['connectome', 'storm', 'mri'].map((m) => [`m:${m}`, `brain: ${m}`])]);
-  og('instruments', [['instruments', 'instruments']]);
-  og('the brain, 2D', MODE_GROUPS.brain.filter((m) => !['connectome', 'storm', 'compact', 'mri'].includes(m)).map((m) => [`m:${m}`, m]));
-  og('demo scene', MODE_GROUPS.demo.map((m) => [`m:${m}`, m]));
+// the DJ: three channel strips without words (EQ, filters, the effect, the fader and its level; the primary's strip
+// lit, a cut in red) and the plan ahead: each deck's fader over the next bars, with a mark where it holds the bass
+const DECK_COL = ['#4af1f2', '#ff2a6d', '#2a6dff'];
+const levels = decks.map(() => ({ buf: new Float32Array(512), v: 0 }));
+function drawDJ() {
+  const D = Math.min(2, devicePixelRatio || 1), rc = djc.getBoundingClientRect();
+  if (djc.width !== Math.round(rc.width * D) || djc.height !== Math.round(rc.height * D)) { djc.width = Math.round(rc.width * D); djc.height = Math.round(rc.height * D); }
+  const W = djc.width, H = djc.height, g = dg, P = dj.planner;
+  g.fillStyle = '#000'; g.fillRect(0, 0, W, H);
+  const head = (document.querySelector('.brand').getBoundingClientRect().bottom + 16) * D;      // below the wordmark and the claim
+  const m = 16 * D, avail = H - $('bar').offsetHeight * D - 24 * D - head, planH = Math.min(120 * D, avail * 0.3);
+  const gap = 12 * D, sw = Math.min(250 * D, (W - 2 * m - 2 * gap) / 3), x0 = (W - 3 * sw - 2 * gap) / 2;
+  const sh = Math.min((W / D < 640 ? 240 : 300) * D, avail - planH - 36 * D), u = Math.min(1, sw / (230 * D));
+  const top = head + Math.max(0, (avail - sh - 36 * D - planH) / 2), bottom = top + sh + 36 * D + planH;
+  g.textBaseline = 'middle';
+  decks.forEach((d, k) => {
+    const x = x0 + k * (sw + gap), y = top, col = DECK_COL[k], p = d.p, on = !!d.track;
+    g.globalAlpha = on ? 1 : 0.35;
+    g.strokeStyle = on ? col : 'rgba(74,241,242,.28)'; g.lineWidth = d.role === 'primary' ? 2 * D : D; g.strokeRect(x + 0.5, y + 0.5, sw - 1, sh - 1);
+    if (d.role === 'primary') { g.shadowColor = col; g.shadowBlur = 18 * D; g.strokeRect(x + 0.5, y + 0.5, sw - 1, sh - 1); g.shadowBlur = 0; }
+    g.fillStyle = col; g.fillRect(x, y, sw * (d.role === 'in' ? 0.5 : d.role === 'out' ? 0.25 : on ? 1 : 0), 3 * D);
+    // the knobs: EQ in the first row, the filters and the effect in the second; the fader at the right
+    const kr = 15 * D * u, colW = (sw - 54 * D) / 3, row1 = y + 48 * D * Math.max(0.8, u), row2 = row1 + 56 * D * Math.max(0.8, u);
+    const knobs = [[[p.hi, true], [p.mid, true], [p.lo, true]], [[p.hp, false], [p.lp, false], [p.fx, false]]];
+    knobs.forEach((rowK, r) => rowK.forEach(([v, bip], c) => knob(g, x + 10 * D + colW * (c + 0.5), r ? row2 : row1, kr, +v || 0, col, bip, D)));
+    if ((p.cut ?? 1) < 0.5) { g.fillStyle = '#ff2a6d'; g.fillRect(x + 10 * D, row2 + 34 * D * u, sw - 64 * D, 3 * D); }
+    // the fader and the level after it
+    const fx = x + sw - 30 * D, fy0 = y + 52 * D, fy1 = y + sh - 16 * D, fv = clamp(+p.fader || 0, 0, 1);
+    g.fillStyle = 'rgba(74,241,242,.12)'; g.fillRect(fx - 2 * D, fy0, 4 * D, fy1 - fy0);
+    const cy = fy1 - fv * (fy1 - fy0);
+    g.fillStyle = col; g.shadowColor = col; g.shadowBlur = on ? 10 * D : 0; g.fillRect(fx - 9 * D, cy - 3 * D, 18 * D, 6 * D); g.shadowBlur = 0;
+    const L = levels[k];
+    if (d.n && d.n.meter && on) {
+      d.n.meter.getFloatTimeDomainData(L.buf);
+      let s = 0; for (let i = 0; i < L.buf.length; i++) s += L.buf[i] * L.buf[i];
+      const db = 20 * Math.log10(Math.sqrt(s / L.buf.length) + 1e-6), v = clamp((db + 48) / 48, 0, 1);
+      L.v = Math.max(v, L.v - 0.04);
+    } else L.v = 0;
+    g.fillStyle = 'rgba(74,241,242,.08)'; g.fillRect(fx + 14 * D, fy0, 4 * D, fy1 - fy0);
+    g.fillStyle = col; g.fillRect(fx + 14 * D, fy1 - L.v * (fy1 - fy0), 4 * D, L.v * (fy1 - fy0));
+    g.globalAlpha = 1;
+  });
+  // the plan: the faders from 8 bars back to 56 ahead, the bass as a thick mark, section lines every 32 bars
+  const py = bottom - planH, px0 = x0, px1 = x0 + 3 * sw + 2 * gap;
+  g.strokeStyle = 'rgba(74,241,242,.28)'; g.lineWidth = D; g.strokeRect(px0 + 0.5, py + 0.5, px1 - px0 - 1, planH - 1);
+  if (!P || !dj.clock || !ctx) return;
+  const now = dj.posOf(ctx.currentTime), a = now - 8, b = now + 56, X = (pos) => px0 + ((pos - a) / (b - a)) * (px1 - px0);
+  g.fillStyle = 'rgba(74,241,242,.45)';
+  const sec = dj.section || 32;
+  for (let s = Math.ceil((a - P.origin) / sec) * sec + P.origin; s <= b; s += sec) {
+    g.fillRect(X(s), py, D, planH);
+  }
+  decks.forEach((d, k) => {
+    if (P.role[k] === 'idle' && !d.track) return;
+    g.strokeStyle = DECK_COL[k]; g.lineWidth = 2 * D; g.beginPath();
+    for (let i = 0; i <= 128; i++) {
+      const pos = a + ((b - a) * i) / 128, v = P.role[k] === 'idle' ? 0 : P.value(k, 'fader', pos), yy = py + planH - 8 * D - v * (planH - 26 * D);
+      if (i) g.lineTo(X(pos), yy); else g.moveTo(X(pos), yy);
+    }
+    g.stroke();
+    g.fillStyle = DECK_COL[k];
+    for (let i = 0; i < 128; i++) {
+      const pos = a + ((b - a) * (i + 0.5)) / 128;
+      if (P.role[k] !== 'idle' && P.value(k, 'lo', pos) >= 0.3 && P.value(k, 'fader', pos) > 0.3) g.fillRect(X(a + ((b - a) * i) / 128), py + 4 * D + k * 5 * D, (px1 - px0) / 128 + 0.5, 3 * D);
+    }
+  });
+  g.fillStyle = '#e8ffff'; g.fillRect(X(now), py - 2 * D, D, planH + 4 * D);
+}
+function knob(g, x, y, r, v, col, bip, D) {
+  const a0 = Math.PI * 0.75, a1 = Math.PI * 2.25, a = a0 + (a1 - a0) * clamp(v, 0, 1), mid = (a0 + a1) / 2;
+  g.lineWidth = 3 * D; g.lineCap = 'round';
+  g.strokeStyle = 'rgba(74,241,242,.14)'; g.beginPath(); g.arc(x, y, r, a0, a1); g.stroke();
+  g.strokeStyle = col; g.beginPath(); if (bip) g.arc(x, y, r, Math.min(mid, a), Math.max(mid, a)); else g.arc(x, y, r, a0, a); g.stroke();
+  g.lineWidth = 2 * D; g.strokeStyle = '#e8ffff'; g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(a) * r * 0.72, y + Math.sin(a) * r * 0.72); g.stroke();
+  g.lineCap = 'butt';
+}
+
+// the view control: icons for brain, devices, MRI, DJ; "more" steps through brainviz's other modes
+const MORE = ['compact', 'connectome', 'storm', ...MODE_GROUPS.brain.filter((x) => !['connectome', 'storm', 'compact', 'mri'].includes(x)), ...MODE_GROUPS.demo].map((x) => `m:${x}`);
+const ORDER = [...MAIN.map(([v]) => v), ...MORE];
+for (const b of document.querySelectorAll('#views [data-view]')) {
+  b.onclick = () => { const v = b.dataset.view; setView(v === 'more' ? MORE[(MORE.indexOf(view) + 1) % MORE.length] : v); b.blur(); };
 }
 function setView(v) {
+  if (!known(v)) v = 'brain';
   view = v; store.set('view', v);
-  if (v === 'brain') viz.setMode(VIEW_BRAIN);
+  const heroOn = v === 'brain' && HERO, vizOn = !heroOn && (v === 'brain' || v === 'mri' || v.startsWith('m:'));
+  if (v === 'brain' && !HERO) viz.setMode('compact');
+  else if (v === 'mri') viz.setMode('mri');
   else if (v.startsWith('m:')) viz.setMode(v.slice(2));
-  inst.hidden = v !== 'instruments';
-  modeSel.value = v;
+  $('hero').hidden = !heroOn; $('viz').hidden = !vizOn; $('devices').hidden = v !== 'devices'; djc.hidden = v !== 'dj';
+  document.body.dataset.view = v.startsWith('m:') ? 'more' : v;
+  if (heroOn) { fitHero(); hero.start(); } else hero.stop();
+  if (!vizOn && viz.gl3) viz.gl3.hide();
+  for (const b of document.querySelectorAll('#views [data-view]')) b.classList.toggle('on', b.dataset.view === (v.startsWith('m:') ? 'more' : v));
 }
 setView(view);
-modeSel.addEventListener('change', () => { setView(modeSel.value); modeSel.blur(); });
+// the stage ends above the controls, so its labels at the bottom stay in view
+function fitHero() { $('hero').style.height = `calc(100% - ${$('bar').offsetHeight}px)`; hero.resize(); }
+addEventListener('resize', () => { if (!$('hero').hidden) fitHero(); });
 
 function frame() {
   requestAnimationFrame(frame);
   if (document.hidden) return;
-  if (view === 'instruments') { drawInstruments(); if (viz.gl3) viz.gl3.hide(); return; }
   const ms = 15000 / bpm, playing = decks.some((d) => d.playing);
-  viz.frame(playing && clock.step >= 0 ? Math.min(0.999, (clock.step + Math.min(1, (performance.now() - clock.stepAt) / ms)) / 16) : 0, ms);
+  const phase = playing && clock.step >= 0 ? Math.min(0.999, (clock.step + Math.min(1, (performance.now() - clock.stepAt) / ms)) / 16) : 0;
+  if (view === 'devices') { devv.setSecond(secondDeck()); devv.draw(phase); }
+  else if (view === 'dj') drawDJ();
+  else if (!(view === 'brain' && HERO)) viz.frame(phase, ms);
 }
 requestAnimationFrame(frame);
 
 // ---------- the Auto DJ ----------
-function say(text) { note = text; paintReadout(); setTimeout(() => { if (note === text) { note = ''; paintReadout(); } }, 12000); }
+function say(text) { notes.push({ at: new Date().toISOString(), text }); if (notes.length > 50) notes.shift(); console.info(`radio: ${text}`); }
 dj = new AutoDJ({ chans: decks, ctx: () => ctx, ensureAudio, bpm: () => bpm, userBpm: () => null,
   setBpm: (v) => { bpm = +v || bpm; for (const d of decks) if (d.fx) d.fx.setTempo(bpm); if (dj) dj.retime(); },
-  status: say, paint: () => paintReadout(), readout: () => {}, brainName: () => 'radio' },
+  status: say, paint: () => {}, readout: () => {}, brainName: () => 'radio' },
 // the radio's blend: the second track starts at bar 32, a long blend takes 64 bars with the bass swap in its middle,
 // a track lives 128 to 160 bars, a primary plays alone for one section at most (autodj.js, Planner)
 { section: clamp(+q.get('section') || 32, 4, 32), blend: { swaps: [64], swapAt: 32, solo: [1, 1, 2] } });
 dj.debug = q.has('djdebug');
-window.__radioApp = { dj, decks, viz, clock, ctx: () => ctx, starts: [], setView };
+window.__radioApp = { dj, decks, viz, hero, devices: devv, clock, ctx: () => ctx, starts: [], setView, notes, state: () => state(), onPulse: (fn) => pulseTo.push(fn) };
 
 // ---------- the controls ----------
-const PLAIN = { slate_inst_reads_s2_echo2: 'deeper QUAD echo', slate_inst_reads_s2_echor: 'QUAD echo, returns only',
-  slate_split_s2_echor: 'DUO echo, returns only', slate_split_s2_echorq: 'DUO echo, returns only, second run', slate_inst_reads_s2_echo: 'QUAD echo',
-  slate_inst_reads_s2_echo2q: 'deeper QUAD echo, second run' };
-const runOf = (ck) => String(ck || '').replace(/_(e\d+(b\d+)?|l\d{8}|latest)$/, '');
-function plainBrain(ck) {
-  const run = runOf(ck);
-  return PLAIN[run] || run.replace(/^slate_/, '').replace(/_/g, ' ') || 'a Cadance brain';
-}
-// where the store holds tracks of two states of one run, the state's code tells them apart: "deeper QUAD echo · e001b008"
-function brainLabel(ck) {
-  const run = runOf(ck), code = (String(ck || '').match(/_(e\d+b\d+|e\d+|l\d{8})$/) || [])[1];
-  const states = new Set(R.entries().filter((t) => runOf(t.brain) === run).map((t) => t.brain));
-  return code && states.size > 1 ? `${plainBrain(ck)} · ${code}` : plainBrain(ck);
-}
 let playingNow = false;
-// what the Auto DJ does, in one short line: a track coming in, one leaving, or the primary alone until the next
+// what the Auto DJ does, in one line (state() only): a track coming in, one leaving, or the primary alone until the next
 function djLine() {
   const P = dj.planner, c = dj.clock;
   if (!dj.on || !P || !c) return '';
@@ -342,22 +401,19 @@ function djLine() {
   if (P.nextStart != null && P.nextStart > G) return `${no(P.primary)} alone, the next track comes in ${P.nextStart - G} bars`;
   return dj.say || '';
 }
-function paintReadout() {
-  const st = $('status');
-  st.textContent = R.note + (R.error ? ` (${R.error})` : '');
-  st.toggleAttribute('data-live', !!R.live);
-  const f = front();
-  let what = '';
-  if (f && f.track) what = `${brainLabel(f.track.checkpoint)} · track ${f.track.no}`;
-  else if (playingNow && !R.tracks) what = 'no tracks yet';
-  else if (playingNow) what = 'the first track is loading';
-  if (note) what = what ? `${what} · ${note}` : note;
-  $('nowPlaying').textContent = what;
-  $('djLine').textContent = playingNow ? djLine() : '';
-  $('playB').innerHTML = playingNow && ctx && ctx.state === 'running' ? '&#10074;&#10074;' : '&#9654;';
-  $('playB').setAttribute('aria-label', playingNow ? 'pause' : 'play');
+// everything the page does not write, for tests and the console
+function state() {
+  const f = front(), P = dj.planner;
+  return { radio: R.note, live: !!R.live, error: R.error || '', tracks: R.tracks, playing: playingNow, running: !!ctx && ctx.state === 'running', bpm, view,
+    front: f && f.track ? { deck: f.d, checkpoint: f.track.checkpoint, track: f.track.no, bar: f.trackAt } : null,
+    decks: decks.map((d) => (d.track ? { track: d.track.no, checkpoint: d.track.checkpoint, role: d.role, bar: d.trackAt, fader: d.p.fader } : null)),
+    dj: { line: djLine(), primary: P ? P.primary : null, nextStart: P ? P.nextStart : null, active: P ? P.active.map((t) => ({ ...t })) : [] },
+    devices: devNote, notes: notes.slice() };
 }
-setInterval(paintReadout, 1000);
+function paintControls() {
+  $('playB').innerHTML = playingNow && ctx && ctx.state === 'running' ? '&#10074;&#10074;' : '&#9654;';
+  $('playB').setAttribute('aria-label', playingNow && ctx && ctx.state === 'running' ? 'pause' : 'play');
+}
 async function startRadio() {
   if (!R.tracks) { await R.manifest(true); }
   if (!R.tracks) { paintBig(); return; }
@@ -366,12 +422,12 @@ async function startRadio() {
   if (ctx.state !== 'running') await ctx.resume();
   playingNow = true;
   if (!dj.on) dj.start('approved');
-  paintReadout();
+  paintControls();
 }
 async function togglePlay() {
   if (!playingNow) return startRadio();
   if (ctx.state === 'running') await ctx.suspend(); else await ctx.resume();
-  paintReadout();
+  paintControls();
 }
 async function nextTrack() {
   if (!playingNow) return startRadio();
@@ -382,7 +438,7 @@ function paintBig() {
   const b = $('bigPlayB');
   const none = R.tracks === 0 && R.listed;
   b.disabled = none;
-  b.querySelector('.lab').textContent = none ? 'no tracks yet' : 'play the radio';
+  b.setAttribute('aria-label', none ? 'play (the store has no tracks yet)' : 'play');
 }
 $('bigPlayB').onclick = startRadio;
 $('playB').onclick = togglePlay;
@@ -392,19 +448,19 @@ volume.value = store.get('volume', 0.8);
 volume.oninput = () => { store.set('volume', +volume.value); if (vol) vol.gain.setTargetAtTime(+volume.value, ctx.currentTime, 0.02); };
 const full = () => { if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen?.().catch(() => {}); };
 $('fullB').onclick = full;
-document.addEventListener('fullscreenchange', () => setTimeout(() => viz.resize(), 60));
+document.addEventListener('fullscreenchange', () => setTimeout(() => { viz.resize(); if (!$('hero').hidden) fitHero(); }, 60));
 addEventListener('keydown', (e) => {
   if (/INPUT|SELECT|TEXTAREA/.test(e.target.tagName) || e.metaKey || e.ctrlKey || e.altKey) return;
   if (e.key === 'f') full();
-  else if (e.key === 'm') { const opts = [...modeSel.options].map((o) => o.value); setView(opts[(opts.indexOf(view) + 1) % opts.length]); }
+  else if (e.key === 'm') setView(ORDER[(ORDER.indexOf(view) + 1) % ORDER.length]);
   else if (e.key === 'n') nextTrack();
   else if (e.key === ' ') { e.preventDefault(); togglePlay(); }
   else if (e.key === 'Escape') { closePanels(); }
 });
 // the store: an empty list waits; the list is read again every minute until it has tracks
 (async () => {
-  await R.manifest(); R.listed = true; paintBig(); paintReadout();
-  const again = setInterval(async () => { if (R.tracks) return clearInterval(again); await R.manifest(true); paintBig(); paintReadout(); }, 60000);
+  await R.manifest(); R.listed = true; paintBig();
+  const again = setInterval(async () => { if (R.tracks) return clearInterval(again); await R.manifest(true); paintBig(); }, 60000);
 })();
 
 // ---------- the settings (gear) ----------
@@ -412,6 +468,7 @@ const settings = $('settings');
 function openSettings() {
   closePanels();
   $('apiUrl').value = R.api || '';
+  $('radioState').textContent = R.note + (R.error ? ` (${R.error})` : '');
   $('apiState').textContent = R.live ? `Live brain found at ${R.api}. Live playback arrives with the next update.` : R.detail || '';
   settings.hidden = false;
   if (!settings.querySelector('.toggles')) {
@@ -423,7 +480,12 @@ function openSettings() {
     $('vjT').onchange = () => store.set('vj', $('vjT').checked);
   }
 }
-function paintCalm() { document.querySelector('.scan').hidden = calm(); }
+function paintCalm() {
+  document.querySelector('.scan').hidden = calm(); hero.setCalm(calm()); if (calm()) hero.setScene('wired');
+  $('calmB').setAttribute('aria-pressed', String(calm()));
+  if ($('calmT')) $('calmT').checked = !!store.get('calm', false);
+}
+$('calmB').onclick = () => { store.set('calm', !store.get('calm', false)); paintCalm(); $('calmB').blur(); };
 paintCalm();
 $('gearB').onclick = () => (settings.hidden ? openSettings() : closePanels());
 $('apiClose').onclick = closePanels;
@@ -437,11 +499,11 @@ $('apiUrl').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('apiSa
 // ---------- the tutorial and "what am I looking at" ----------
 const tour = $('tour');
 const TOUR = [
-  { mark: ['viz'], html: `<p>Cadance Radio plays tracks composed by Cadance brains. The Auto DJ mixes them live in your browser, and the picture shows the brain that wrote the bar you hear.</p><p><a href="https://cadence.floatingpragma.ai/" target="_blank" rel="noopener">${TAGLINE}</a></p>` },
-  { mark: ['gearB'], html: '<p>Composing live needs a server that hosts the Cadance neural network. <a href="https://github.com/muellerberndt/cadance-minimal/blob/main/docs/running.md#a-live-composer-for-the-radio-site" target="_blank" rel="noopener">How to run one</a></p><p>The gear is where you set its address.</p>' },
-  { mark: ['bigPlayB', 'gearB'], html: '<p>Two options:</p><div class="row"><button id="tourPlay" class="go">Play the radio now</button><button id="tourGear">Configure a neural network server first</button></div>' },
+  { mark: ['viz'], html: `<p>A human-like brain that hears and composes minimal techno. It hears, it remembers, it plans, it plays.</p><p>A real brain with a memory and one stream of awareness: not a feed-forward network, not a transformer.</p><p><a href="https://cadence.floatingpragma.ai/" target="_blank" rel="noopener">${TAGLINE}</a></p>` },
+  { mark: ['gearB'], html: '<p>A brain can also compose live, on a server of your own. <a href="https://github.com/muellerberndt/cadance-minimal/blob/main/docs/running.md#a-live-composer-for-the-radio-site" target="_blank" rel="noopener">How to run one</a></p><p>The gear holds its address.</p>' },
+  { mark: ['bigPlayB', 'gearB'], html: '<div class="row"><button id="tourPlay" class="go">Listen now</button><button id="tourGear">Set up a live brain first</button></div>' },
 ];
-const WHAT = '<p>What you are looking at:</p><p>its real wiring: the regions of the brain and the synapses between them;</p><p>it settles until it comes to rest, there is no forward pass;</p><p>a memory it reads, bar by bar;</p><p>one stream that never resets;</p><p>not a feed-forward network, not a transformer.</p>';
+const WHAT = '<p>What you see is the brain itself: its regions and the synapses between them.</p><p>It hears, it remembers, it plans, it plays. It settles until it comes to rest, in one stream of awareness that never resets.</p><p>Not a feed-forward network, not a transformer.</p>';
 let tourAt = 0, rings = [];
 function mark(ids) {
   for (const r of rings) r.remove();
@@ -480,4 +542,4 @@ $('tourClose').onclick = () => { seen(); closePanels(); };
 $('helpB').onclick = () => (tour.hidden ? showWhat() : closePanels());
 addEventListener('resize', () => { if (!tour.hidden && tour.dataset.step && tour.dataset.step !== 'what') mark(TOUR[tourAt].mark.filter((id) => id !== 'viz')); });
 if (!store.get('tour', false)) showTour(0);
-paintReadout();
+paintControls();

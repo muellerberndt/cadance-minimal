@@ -7,9 +7,11 @@ bar number (the page's Brain and Instruments views read it). The first --skip ba
 stays close to the training passage it continued); the passage's title ("seed") is never written, and the MP3 carries
 no title but "Cadance radio <id>". tools/build_radio.py manifest <out> then writes <out>/tracks.json.
 
-    python tools/render_radio.py <track file or folder> [...] [--out build/radio-store] [--skip 32]
+    python tools/render_radio.py <track file or folder> [...] [--out build/radio-store] [--skip 32] [--bpm 145]
 
-One track at a time, at low priority.
+One track at a time, at low priority. --bpm sets the tempo of the rendered score, the note file and the manifest
+(default 145, the radio's tempo); the id includes it: the first 12 hex of sha1("<brain>/<file name>|<bpm>"), the
+tempo written as 145, not 145.0.
 """
 import argparse
 import hashlib
@@ -38,6 +40,7 @@ def main():
     ap.add_argument("--out", type=Path, default=ROOT / "build" / "radio-store")
     ap.add_argument("--skip", type=int, default=32)
     ap.add_argument("--min-bars", type=int, default=64)
+    ap.add_argument("--bpm", type=float, default=145.0, help="the tempo the score is rendered at (default 145)")
     args = ap.parse_args()
     (args.out / "tracks").mkdir(parents=True, exist_ok=True)
     try:
@@ -49,11 +52,12 @@ def main():
     for f in track_files(args.tracks):
         t = json.loads(f.read_bytes())
         bars = (t.get("bars") or [])[args.skip:]
-        brain, bpm, pool = str(t.get("checkpoint") or ""), t.get("bpm"), t.get("pool")
+        brain, bpm, pool = str(t.get("checkpoint") or ""), args.bpm, t.get("pool")
+        bpm = int(bpm) if float(bpm).is_integer() else bpm
         if len(bars) < args.min_bars or not bpm or not pool:
             print(f"left out: {f.name} ({len(bars)} bars after the skip)", flush=True)
             continue
-        tid = hashlib.sha1(f"{brain}/{f.name}".encode()).hexdigest()[:12]
+        tid = hashlib.sha1(f"{brain}/{f.name}|{bpm}".encode()).hexdigest()[:12]     # the tempo is part of the id
         mp3, note = args.out / "tracks" / f"{tid}.mp3", args.out / "tracks" / f"{tid}.json"
         note.write_text(json.dumps({"brain": brain, "bpm": bpm, "pool": pool, "layout": t.get("layout"),
                                     "bars": [{**{k: b.get(k) for k in ("tokens", "mods", "patterns", "patches", "view") if k in b}, "bar": i + 1}
