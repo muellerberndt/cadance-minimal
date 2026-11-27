@@ -94,7 +94,8 @@ const plain = (b) => {                                   // the run in plain wor
 };
 const $ = (id) => document.getElementById(id);
 const audio = $('audio');
-let tracks = [], shown = [], sel = 0, playing = null, sortKey = 'n', sortDir = 1;
+let tracks = [], shown = [], sel = 0, playing = null, sortKey = 'n', sortDir = 1, brainWeights = {};
+const turns = (b) => { const k = Object.keys(brainWeights).filter((p) => b.startsWith(p)).sort((x, y) => y.length - x.length)[0]; return k ? brainWeights[k] : 1; };
 const say = (text, bad) => { $('said').textContent = text; $('said').className = bad ? 'bad' : ''; };
 const post = async (path, body) => { const r = await fetch(path, { method: 'POST', body: JSON.stringify(body || {}) }); const j = await r.json(); if (!r.ok || j.error) throw new Error(j.error || r.statusText); return j; };
 const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
@@ -105,7 +106,7 @@ async function load() {
   try {
     const j = await (await fetch('/api/tracks')).json();
     if (j.error) throw new Error(j.error);
-    tracks = j.tracks;
+    tracks = j.tracks; brainWeights = j.brain_weights || {};
     draw();
     say(`${tracks.length} tracks read from the store`);
   } catch (e) { say(`the list could not be read: ${e.message}`, true); }
@@ -120,7 +121,8 @@ function draw() {
   $('brains').innerHTML = brains.map((b) => {                // per brain: tracks, your mean of the rated ones, vetoes
     const of = tracks.filter((t) => t.brain === b), rated = of.filter((t) => t.stars && !t.veto), veto = of.filter((t) => t.veto).length;
     const mean = rated.length ? (rated.reduce((a, t) => a + t.stars, 0) / rated.length).toFixed(1) + ' ★' : 'not rated';
-    return `<span data-brain="${b}"><b>${plain(b)}</b>: ${of.length} tracks · ${mean}${rated.length ? ` of ${rated.length}` : ''} · ${veto} vetoed</span>`;
+    const pref = turns(b) !== 1 ? ` · ${turns(b)}× the turns on the radio` : '';
+    return `<span data-brain="${b}"><b>${plain(b)}</b>: ${of.length} tracks · ${mean}${rated.length ? ` of ${rated.length}` : ''} · ${veto} vetoed${pref}</span>`;
   }).join('');
   shown = tracks.filter((t) => (!only || t.brain === only) && (f === 'all' || (f === 'unrated' && !t.stars && !t.veto) || (f === 'rated' && (t.stars || t.veto)) || (f === 'veto' && t.veto) || (f === 'top' && !t.veto && t.stars >= 4)));
   shown.sort((a, b) => { const x = value(a, sortKey), y = value(b, sortKey); return (x == null) - (y == null) || (x > y ? 1 : x < y ? -1 : 0) * sortDir; });

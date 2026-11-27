@@ -32,6 +32,9 @@ STORE = os.environ.get("CADANCE_RADIO_STORE", "https://cadance-radio.s3.amazonaw
 BUCKET = os.environ.get("CADANCE_RADIO_BUCKET", "s3://cadance-radio")
 RATINGS = Path(os.environ.get("CADANCE_RADIO_RATINGS") or ROOT / "quality" / "radio_ratings.json")
 TABLE = ROOT / "quality" / "loop" / "radio_tracks.jsonl"
+# a preference between brains: {"<brain name prefix>": weight}; a brain whose name starts with a prefix gets that
+# many times the turns of the others in the radio's pick (the longest prefix decides; no entry means 1)
+BRAINS = Path(os.environ.get("CADANCE_RADIO_BRAINS") or ROOT / "quality" / "radio_brain_weights.json")
 WEIGHT = {1: 0.25, 2: 0.5, 3: 1.0, 4: 2.0, 5: 4.0}
 LOCK = threading.RLock()
 QUIET = float(os.environ.get("CADANCE_VIEWER_QUIET", "15"))    # seconds after the last rating before it is published
@@ -49,6 +52,14 @@ def ratings():
     try:
         return json.loads(RATINGS.read_text())
     except (OSError, ValueError):
+        return {}
+
+
+def brain_weights():
+    try:
+        value = json.loads(BRAINS.read_text())
+        return {str(k): float(v) for k, v in value.items() if float(v) >= 0}
+    except (OSError, ValueError, TypeError, AttributeError):
         return {}
 
 
@@ -116,8 +127,10 @@ def publish():
     if not kept:
         raise RuntimeError("every track is vetoed: nothing published")
     save_ratings(rated)
-    new = {**{k: v for k, v in current.items() if k != "tracks"}, "tracks": kept,
+    new = {**{k: v for k, v in current.items() if k not in ("tracks", "brain_weights")}, "tracks": kept,
            "rated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+    if brain_weights():
+        new["brain_weights"] = brain_weights()
     with tempfile.TemporaryDirectory() as work:
         path = Path(work) / "tracks.json"
         path.write_text(json.dumps(new, indent=1))
@@ -126,14 +139,17 @@ def publish():
                                "--cache-control", "public, max-age=60", "--only-show-errors"], capture_output=True, text=True, timeout=120)
     if done.returncode:
         raise RuntimeError("the store refused the list: " + (done.stderr.strip()[-200:] or "aws s3 cp failed"))
-    STATE.update(published=time.strftime("%H:%M:%S"), said=f"{len(kept)} tracks on the radio, {out_of_list} vetoed and out", error="")
-    return {"published": len(kept), "vetoed": out_of_list}
+    vetoed = sum(1 for r in rated.values() if r.get("veto"))
+    STATE.update(published=time.strftime("%H:%M:%S"), said=f"{len(kept)} tracks on the radio, {vetoed} vetoed and out", error="")
+    return {"published": len(kept), "vetoed": vetoed}
 
 
 def in_step():
     """Whether the store's list already carries the ratings: no vetoed track in it, every rated track at its stars."""
     rated = ratings()
     listed = {t["id"]: t for t in manifest().get("tracks") or []}
+    if (current_weights := manifest().get("brain_weights") or {}) != brain_weights():
+        return False
     for tid, r in rated.items():
         if r.get("veto"):
             if tid in listed:
@@ -188,7 +204,8 @@ class Handler(BaseHTTPRequestHandler):
             if self.path.split("?")[0] == "/":
                 return self._send(200, PAGE.read_bytes(), "text/html; charset=utf-8")
             if self.path.split("?")[0] == "/api/tracks":
-                return self._send(200, {"tracks": tracks(), "store": STORE, "weights": WEIGHT, "state": self._state()})
+                return self._send(200, {"tracks": tracks(), "store": STORE, "weights": WEIGHT, "brain_weights": brain_weights(),
+                                        "state": self._state()})
             if self.path.split("?")[0] == "/api/state":
                 return self._send(200, self._state())
             return self._send(404, {"error": "no such page"})
