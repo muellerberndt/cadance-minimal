@@ -107,9 +107,15 @@ lists the runs it finds under `quality/composer/<name>/`.
 
 [cadance.floatingpragma.ai](https://cadance.floatingpragma.ai) is a static page. In radio mode its
 Auto DJ mixes whole tracks that Cadance brains composed ahead. The tracks are MP3 files, rendered
-by the engine with the player's mix settings and picked at random; the visuals follow the audio.
-No brain runs anywhere while the radio plays, and the page shows "Cadance brain offline, radio mode
-active".
+by the engine with the player's mix settings and picked by a weighted draw; the visuals follow the
+audio and the tracks' note files. No brain runs anywhere while the radio plays, and the settings
+panel says so ("Cadance brain offline, radio mode active").
+
+The visuals menu has three groups: brain (wired brain, MRI, connectome), instruments (devices,
+mixer) and art (Amiga, OPH screen). A link can name the visual the page starts with:
+`https://cadance.floatingpragma.ai/?visuals=glorb` opens the OPH screen. The other names are
+`brain`, `mri`, `connectome`, `devices`, `mixer` and `amiga`; an unknown name starts with the
+visitor's last visual.
 
 Live composing is a different mode: a brain writes the next bar while you listen. That needs a
 server.

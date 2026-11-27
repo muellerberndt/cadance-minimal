@@ -333,7 +333,8 @@ function screenStage() {
   const s = new ScreenStage($('scrv'), { calm: calm() });
   if (!s.ok) { say('OPH screen: no WebGL'); return null; }
   screen = s;
-  if (window.__radioApp.analyser) screen.setAudio(window.__radioApp.analyser);
+  const app = window.__radioApp;                       // not there yet when a link opens the page on this view
+  if (app && app.analyser) screen.setAudio(app.analyser);
   return screen;
 }
 
@@ -399,7 +400,12 @@ const VIEWS = ['brain', 'mri', 'connectome', 'devices', 'dj', 'amiga', 'screen']
 const VIZ_MODE = { mri: 'mri', connectome: 'connectome', amiga: 'cadance' };
 const shown = () => VIEWS.filter((v) => v !== 'screen' || (ScreenStage && (!screenTried || screen)));
 const OLD = { 'm:connectome': 'connectome', 'm:cadance': 'amiga' };            // a returning visitor's view from before the menu
-let view = (() => { const v = store.get('view', 'brain'); return OLD[v] || (VIEWS.includes(v) && v !== 'screen' ? v : 'brain'); })();
+// a link can name the visual the page starts with: ?visuals=glorb (also ?visual= and ?view=); else the visitor's last one
+const NAMED = { brain: 'brain', wired: 'brain', wiredbrain: 'brain', mri: 'mri', connectome: 'connectome', devices: 'devices', instruments: 'devices',
+  mixer: 'dj', dj: 'dj', amiga: 'amiga', cadance: 'amiga', glorb: 'screen', glorbs: 'screen', screen: 'screen', oph: 'screen', ophscreen: 'screen',
+  echosahedron: 'screen', echosahedra: 'screen' };
+const ASKED = NAMED[(q.get('visuals') || q.get('visual') || q.get('view') || '').toLowerCase().replace(/[^a-z0-9]/g, '')] || null;
+let view = ASKED || (() => { const v = store.get('view', 'brain'); return OLD[v] || (VIEWS.includes(v) && v !== 'screen' ? v : 'brain'); })();
 let vizTrack = null, heroTrack = null, devTrack = null;
 const vizHistory = [];
 fetch('brain3d/brain.b3d').then((r) => (r.ok ? r.arrayBuffer() : null)).then((b) => { if (b) hero.setBrain(b); }).catch(() => {});
