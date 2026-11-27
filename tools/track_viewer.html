@@ -44,6 +44,12 @@
   tr.veto .vetoB { background: var(--red); color: #000; }
   .warn { color: #ffb347; }
   main { padding: 0 6px 60px; }
+  #toast { position: fixed; left: 50%; bottom: 26px; transform: translate(-50%, 20px); opacity: 0; pointer-events: none; z-index: 5; max-width: 90vw;
+           padding: 10px 18px; background: #000; color: var(--glow); border: 1px solid var(--glow); border-radius: 4px; box-shadow: 0 0 18px var(--glow-soft);
+           transition: opacity .25s, transform .25s; }
+  #toast.show { opacity: 1; transform: translate(-50%, 0); }
+  #toast.bad { color: var(--red); border-color: var(--red); box-shadow: 0 0 18px rgba(255, 42, 109, .5); }
+  button:disabled { opacity: .7; cursor: default; }
 </style>
 </head>
 <body>
@@ -83,6 +89,7 @@
     <tbody id="rows"></tbody>
   </table>
 </main>
+<div id="toast" role="status" aria-live="polite"></div>
 <audio id="audio" preload="none"></audio>
 <script>
 const PLAIN = [['slate_inst_reads_s2_echo2q', 'deeper QUAD echo, longer trained'], ['slate_inst_reads_s2_echo2', 'deeper QUAD echo'],
@@ -102,14 +109,18 @@ const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart
 const value = (t, k) => k === 'held' ? Math.max(t.counts.held_bass || 0, t.counts.held_lead || 0) : k === 'stars' ? (t.veto ? -1 : (t.stars || 3))
   : k in t ? t[k] : t.counts[k];
 
-async function load() {
+async function load(quiet) {
   try {
     const j = await (await fetch('/api/tracks')).json();
     if (j.error) throw new Error(j.error);
     tracks = j.tracks; brainWeights = j.brain_weights || {};
     draw();
-    say(`${tracks.length} tracks read from the store`);
+    if (!quiet) say(`${tracks.length} tracks read from the store`);
   } catch (e) { say(`the list could not be read: ${e.message}`, true); }
+}
+function toast(text, bad) {                                // a line nobody can miss, for a few seconds
+  const t = $('toast'); t.textContent = text; t.className = bad ? 'show bad' : 'show';
+  clearTimeout(toast.timer); toast.timer = setTimeout(() => { t.className = ''; }, bad ? 9000 : 5000);
 }
 
 function draw() {
@@ -180,11 +191,16 @@ $('fwd').onclick = () => seekBars(32);
 $('filter').onchange = () => { sel = 0; draw(); };
 $('brain').onchange = () => { sel = 0; draw(); };
 $('brains').onclick = (e) => { const s = e.target.closest('[data-brain]'); if (s) { $('brain').value = $('brain').value === s.dataset.brain ? '' : s.dataset.brain; sel = 0; draw(); } };
-$('reload').onclick = load;
+$('reload').onclick = () => load();
 $('publish').onclick = async () => {
-  say('publishing…');
-  try { const j = await post('/api/publish'); say(`published: ${j.published} tracks on the radio, ${j.vetoed} vetoed and out`); await load(); }
-  catch (e) { say(`not published: ${e.message}`, true); }
+  const b = $('publish'), label = b.textContent, at = () => new Date().toTimeString().slice(0, 8);
+  b.disabled = true; b.textContent = 'publishing…'; say('publishing your ratings to the radio…');
+  try {
+    const j = await post('/api/publish'), text = `published at ${at()}: ${j.published} tracks on the radio, ${j.vetoed} vetoed and out`;
+    say(text); toast('✓ ' + text); b.textContent = 'published ✓';
+    await load(true);
+  } catch (e) { say(`not published: ${e.message}`, true); toast(`not published: ${e.message}`, true); b.textContent = 'not published'; }
+  setTimeout(() => { b.textContent = label; b.disabled = false; }, 2500);
 };
 document.querySelector('thead').onclick = (e) => { const k = e.target.dataset.k; if (!k) return; sortDir = sortKey === k ? -sortDir : 1; sortKey = k; draw(); };
 $('rows').onclick = (e) => {
@@ -214,7 +230,7 @@ async function pollState() {
     const j = await (await fetch('/api/state')).json(), el = $('live');
     el.style.color = j.error ? 'var(--red)' : 'var(--glow)';
     el.textContent = j.error ? `not published: ${j.error}` : j.pending ? `going to the radio in ${j.in} s` : j.published ? `on the radio since ${j.published}: ${j.said}` : '';
-    if (pollState.was && !j.pending && j.published !== pollState.seen) { pollState.seen = j.published; load(); }
+    if (pollState.was && !j.pending && j.published !== pollState.seen) { pollState.seen = j.published; toast(`✓ your ratings went to the radio at ${j.published}: ${j.said}`); load(true); }
     pollState.was = j.pending;
   } catch { /* the server restarts: the next poll reads it */ }
 }
