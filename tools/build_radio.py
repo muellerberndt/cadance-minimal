@@ -117,6 +117,12 @@ def page(args):
     if args.cname:
         (out / "CNAME").write_text(args.cname + "\n")
     (out / ".nojekyll").write_text("")
+    if args.cname:  # search engines: one page, the radio
+        site = f"https://{args.cname}/"
+        (out / "robots.txt").write_text(f"User-agent: *\nAllow: /\n\nSitemap: {site}sitemap.xml\n")
+        (out / "sitemap.xml").write_text('<?xml version="1.0" encoding="UTF-8"?>\n'
+                                         '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+                                         f"  <url><loc>{site}</loc><lastmod>{time.strftime('%Y-%m-%d')}</lastmod></url>\n</urlset>\n")
     size = sum(p.stat().st_size for p in out.rglob("*") if p.is_file())
     print(f"{out}: the radio page, {len(PAGE) + len(BINARY)} files and the brain {args.brain} for the 3D views; {size / 1e6:.1f} MB")
 
