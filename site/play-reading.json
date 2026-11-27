@@ -1,0 +1,178 @@
+{
+ "temperature": 0.11,
+ "line_scale": 1.3,
+ "entry_scale": 2.0,
+ "voice_dwell": [
+  8,
+  8,
+  8,
+  8
+ ],
+ "control_scale": 0.6,
+ "loudness_scale": 0.3,
+ "balance": {
+  "on": true,
+  "ratio": [
+   0.75,
+   0.22,
+   0.31
+  ],
+  "rangeDb": 30,
+  "kitDb": -14,
+  "duck": 0.3,
+  "outDb": -17,
+  "drums": {
+   "on": true,
+   "plainDb": -6,
+   "ghostDb": -9,
+   "accentDb": 0,
+   "textureDb": -8,
+   "offBackbeatDb": -4,
+   "section": 16,
+   "modes": {
+    "off": 0.4,
+    "push": 0.25,
+    "thin": 0.15,
+    "flat": 0.2
+   },
+   "trimDb": {
+    "kick": 0,
+    "snare": 0,
+    "hats": 0
+   },
+   "levelDb": {
+    "snare": -7.5,
+    "hats": -10
+   },
+   "levelPull": 1,
+   "levelReachDb": 40,
+   "kickBeatsDb": -8,
+   "hatOnKickDb": -3,
+   "cymToHats": true,
+   "kickBoost": {
+    "on": true,
+    "targetDb": 2,
+    "maxDb": 6,
+    "rate": 0.25,
+    "ceilDb": 3,
+    "subHz": 70,
+    "punchDb": 3,
+    "attackMs": 4,
+    "bodyDb": 6,
+    "bodyHz": 140,
+    "bodyQ": 0.9,
+    "bodyMs": 60
+   }
+  },
+  "voice": {
+   "on": true,
+   "brightDb": [
+    -8.5,
+    -0.5,
+    -4
+   ],
+   "weighLimitDb": 6,
+   "gateDb": -20,
+   "freshMs": 250,
+   "comp": {
+    "ratio": 3.5,
+    "thrDb": 3,
+    "kneeDb": 6,
+    "attackMs": 5,
+    "releaseMs": 150,
+    "makeupDb": 8,
+    "ratios": [
+     1,
+     3.5,
+     3.5
+    ]
+   },
+   "weighUpDb": [
+    0,
+    6,
+    6
+   ]
+  },
+  "bus": {
+   "on": true,
+   "thrDb": -14,
+   "ratio": 2,
+   "kneeDb": 6,
+   "attackMs": 30,
+   "releaseBeats": 0.5,
+   "makeupDb": 5,
+   "clipKnee": 0.6,
+   "trimDb": -4.5
+  },
+  "space": {
+   "on": true,
+   "delay": [
+    0,
+    0.4,
+    0
+   ],
+   "reverb": [
+    0,
+    0.4,
+    0.05
+   ],
+   "hpHz": 200
+  },
+  "holdFilter": true,
+  "bass": {
+   "on": true,
+   "gainDb": 8
+  },
+  "holdControls": true
+ },
+ "brains": {
+  "slate_inst_reads_s2_echo2": {
+   "line_scale": 2.0,
+   "synth_line_scale": 1.0,
+   "kick_scale": 0.5,
+   "row_caps": [
+    4,
+    4,
+    13
+   ],
+   "line_caps": [
+    7,
+    6,
+    1
+   ],
+   "cap_mode": "thin"
+  },
+  "slate_inst_reads_s2_echor": {
+   "line_scale": 2.0,
+   "synth_line_scale": 1.0,
+   "kick_scale": 0.5,
+   "row_caps": [
+    4,
+    4,
+    13
+   ],
+   "line_caps": [
+    7,
+    6,
+    1
+   ],
+   "cap_mode": "thin"
+  },
+  "slate_split_s2_echor": {
+   "line_scale": 2.0,
+   "synth_line_scale": 0.65,
+   "kick_scale": 0.5,
+   "row_caps": [
+    4,
+    4,
+    13
+   ],
+   "line_caps": [
+    9,
+    6,
+    1
+   ],
+   "cap_mode": "thin"
+  }
+ }
+}

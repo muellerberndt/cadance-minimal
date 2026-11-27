@@ -1,0 +1,337 @@
+{
+ "voice": "sid",
+ "note": "The chip voice as engine/engine.mjs holds it (PARAMS.sid), for code outside JavaScript. Every control is coded 0..1. A control with q has q settings and selects round(u * (q - 1)); the others map lo..hi (lin, exp or sq). engine/sid_check.mjs fails when this file and the engine differ.",
+ "settings": {
+  "wave": [
+   "off",
+   "triangle",
+   "saw",
+   "pulse",
+   "noise"
+  ],
+  "fx": [
+   "none",
+   "ring",
+   "sync",
+   "ring+sync"
+  ],
+  "mode": [
+   "lowpass",
+   "bandpass",
+   "highpass",
+   "notch"
+  ],
+  "route": "bit k-1 set: oscillator k passes the filter"
+ },
+ "params": [
+  {
+   "name": "wave1",
+   "map": "lin",
+   "lo": 0,
+   "hi": 4,
+   "def": 0.75,
+   "unit": "off, triangle, saw, pulse, noise",
+   "q": 5
+  },
+  {
+   "name": "tune1",
+   "map": "lin",
+   "lo": -12,
+   "hi": 12,
+   "def": 0.5,
+   "unit": "semitones",
+   "q": 25
+  },
+  {
+   "name": "fine1",
+   "map": "lin",
+   "lo": -30,
+   "hi": 30,
+   "def": 0.5,
+   "unit": "cents"
+  },
+  {
+   "name": "pw1",
+   "map": "lin",
+   "lo": 0.05,
+   "hi": 0.95,
+   "def": 0.5,
+   "unit": "duty"
+  },
+  {
+   "name": "attack1",
+   "map": "lin",
+   "lo": 0,
+   "hi": 15,
+   "def": 0,
+   "unit": "rate nibble",
+   "q": 16
+  },
+  {
+   "name": "decay1",
+   "map": "lin",
+   "lo": 0,
+   "hi": 15,
+   "def": 0.466667,
+   "unit": "rate nibble",
+   "q": 16
+  },
+  {
+   "name": "sustain1",
+   "map": "lin",
+   "lo": 0,
+   "hi": 15,
+   "def": 0.4,
+   "unit": "level nibble",
+   "q": 16
+  },
+  {
+   "name": "release1",
+   "map": "lin",
+   "lo": 0,
+   "hi": 15,
+   "def": 0.333333,
+   "unit": "rate nibble",
+   "q": 16
+  },
+  {
+   "name": "wave2",
+   "map": "lin",
+   "lo": 0,
+   "hi": 4,
+   "def": 0,
+   "unit": "off, triangle, saw, pulse, noise",
+   "q": 5
+  },
+  {
+   "name": "tune2",
+   "map": "lin",
+   "lo": -12,
+   "hi": 12,
+   "def": 0.5,
+   "unit": "semitones",
+   "q": 25
+  },
+  {
+   "name": "fine2",
+   "map": "lin",
+   "lo": -30,
+   "hi": 30,
+   "def": 0.5,
+   "unit": "cents"
+  },
+  {
+   "name": "pw2",
+   "map": "lin",
+   "lo": 0.05,
+   "hi": 0.95,
+   "def": 0.5,
+   "unit": "duty"
+  },
+  {
+   "name": "attack2",
+   "map": "lin",
+   "lo": 0,
+   "hi": 15,
+   "def": 0,
+   "unit": "rate nibble",
+   "q": 16
+  },
+  {
+   "name": "decay2",
+   "map": "lin",
+   "lo": 0,
+   "hi": 15,
+   "def": 0.466667,
+   "unit": "rate nibble",
+   "q": 16
+  },
+  {
+   "name": "sustain2",
+   "map": "lin",
+   "lo": 0,
+   "hi": 15,
+   "def": 0.4,
+   "unit": "level nibble",
+   "q": 16
+  },
+  {
+   "name": "release2",
+   "map": "lin",
+   "lo": 0,
+   "hi": 15,
+   "def": 0.333333,
+   "unit": "rate nibble",
+   "q": 16
+  },
+  {
+   "name": "wave3",
+   "map": "lin",
+   "lo": 0,
+   "hi": 4,
+   "def": 0,
+   "unit": "off, triangle, saw, pulse, noise",
+   "q": 5
+  },
+  {
+   "name": "tune3",
+   "map": "lin",
+   "lo": -12,
+   "hi": 12,
+   "def": 0.5,
+   "unit": "semitones",
+   "q": 25
+  },
+  {
+   "name": "fine3",
+   "map": "lin",
+   "lo": -30,
+   "hi": 30,
+   "def": 0.5,
+   "unit": "cents"
+  },
+  {
+   "name": "pw3",
+   "map": "lin",
+   "lo": 0.05,
+   "hi": 0.95,
+   "def": 0.5,
+   "unit": "duty"
+  },
+  {
+   "name": "attack3",
+   "map": "lin",
+   "lo": 0,
+   "hi": 15,
+   "def": 0,
+   "unit": "rate nibble",
+   "q": 16
+  },
+  {
+   "name": "decay3",
+   "map": "lin",
+   "lo": 0,
+   "hi": 15,
+   "def": 0.466667,
+   "unit": "rate nibble",
+   "q": 16
+  },
+  {
+   "name": "sustain3",
+   "map": "lin",
+   "lo": 0,
+   "hi": 15,
+   "def": 0.4,
+   "unit": "level nibble",
+   "q": 16
+  },
+  {
+   "name": "release3",
+   "map": "lin",
+   "lo": 0,
+   "hi": 15,
+   "def": 0.333333,
+   "unit": "rate nibble",
+   "q": 16
+  },
+  {
+   "name": "fx",
+   "map": "lin",
+   "lo": 0,
+   "hi": 3,
+   "def": 0,
+   "unit": "none, ring, sync, ring+sync: oscillator 1 by oscillator 3",
+   "q": 4
+  },
+  {
+   "name": "route",
+   "map": "lin",
+   "lo": 0,
+   "hi": 7,
+   "def": 1,
+   "unit": "bit k-1 set: oscillator k passes the filter",
+   "q": 8
+  },
+  {
+   "name": "cutoff",
+   "map": "exp",
+   "lo": 30,
+   "hi": 12000,
+   "def": 1,
+   "unit": "Hz"
+  },
+  {
+   "name": "reso",
+   "map": "lin",
+   "lo": 0,
+   "hi": 1,
+   "def": 0,
+   "unit": "resonance"
+  },
+  {
+   "name": "mode",
+   "map": "lin",
+   "lo": 0,
+   "hi": 3,
+   "def": 0,
+   "unit": "lowpass, bandpass, highpass, notch",
+   "q": 4
+  },
+  {
+   "name": "f_env",
+   "map": "lin",
+   "lo": -4,
+   "hi": 4,
+   "def": 0.5,
+   "unit": "octaves at note start"
+  },
+  {
+   "name": "f_decay",
+   "map": "exp",
+   "lo": 0.01,
+   "hi": 2,
+   "def": 0.4,
+   "unit": "s"
+  },
+  {
+   "name": "pwm",
+   "map": "lin",
+   "lo": 0,
+   "hi": 1,
+   "def": 0,
+   "unit": "pulse-width sweep"
+  },
+  {
+   "name": "level",
+   "map": "sq",
+   "lo": 0,
+   "hi": 2,
+   "def": 0.55,
+   "unit": "gain"
+  },
+  {
+   "name": "pan",
+   "map": "lin",
+   "lo": -1,
+   "hi": 1,
+   "def": 0.5,
+   "unit": "left..right"
+  },
+  {
+   "name": "send_delay",
+   "map": "lin",
+   "lo": 0,
+   "hi": 1,
+   "def": 0,
+   "unit": "send"
+  },
+  {
+   "name": "send_reverb",
+   "map": "lin",
+   "lo": 0,
+   "hi": 1,
+   "def": 0,
+   "unit": "send"
+  }
+ ]
+}

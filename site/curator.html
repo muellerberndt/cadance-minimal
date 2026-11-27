@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cadance Repertoire</title>
+<style>
+  :root {
+    --bg: #08090b; --panel: #0e1013; --fg: #c9ced6; --mid: #8d959f; --dim: #6b737d; --faint: #1a1d22; --line: #16191d;
+    --calm: #5fd3c6; --warm: #f2a65a; --hot: #f2545b;
+    --beat: #c9ced6; --bass: #3987e5; --lead: #d95926; --air: #5fd3c6;
+    --s-like: var(--calm); --s-synth: var(--lead); --s-break: var(--beat);      /* the three passage scores */
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--fg);
+    font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; -webkit-font-smoothing: antialiased; }
+  button, select, input { font: inherit; color: inherit; background: none; border: 0; padding: 0; }
+  button, select { cursor: pointer; }
+  :focus-visible { outline: 1px solid var(--dim); outline-offset: 3px; }
+  #top { display: flex; align-items: center; gap: 16px; padding: 14px 18px; flex-wrap: wrap; }
+  #mark { letter-spacing: .42em; display: flex; align-items: center; gap: 9px; font-size: 12px; color: inherit; text-decoration: none; }
+  .mark-accent { color: var(--warm); }
+  .orb { width: 7px; height: 7px; border-radius: 50%; background: var(--dim); flex: none; }
+  .orb.on { background: var(--calm); box-shadow: 0 0 8px var(--calm); }
+  #what { color: var(--mid); letter-spacing: .14em; }
+  #top a.nav { color: var(--mid); text-decoration: none; letter-spacing: .12em; padding: 3px 8px; border-radius: 4px; border: 1px solid transparent; }
+  #top a.nav:hover { color: var(--fg); border-color: #262a30; } #top a.nav.on { color: var(--warm); border-color: rgba(242,166,90,.45); }
+  #spacer { flex: 1; }
+  .b { width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--faint); font-size: 13px; }
+  .b:hover { border-color: var(--dim); } .b.off { opacity: .35; }
+  #bpm { width: 40px; font-size: 16px; color: var(--mid); border-bottom: 1px solid var(--line); text-align: right; }
+  #bpm:focus { outline: none; color: var(--fg); }
+  .lbl { color: var(--dim); letter-spacing: .1em; font-size: 10px; }
+  #sync { color: var(--dim); } #sync.ok { color: var(--calm); } #sync.bad { color: var(--hot); }
+
+  #page { display: grid; grid-template-columns: 290px minmax(0, 1fr); gap: 14px; padding: 0 18px 18px; align-items: start; }
+  .panel { background: var(--panel); border-radius: 8px; padding: 12px; box-shadow: 0 1px 0 rgba(255,255,255,.05) inset, 0 10px 30px rgba(0,0,0,.45); min-width: 0; }
+  h2 { margin: 0 0 8px; font-size: 10px; font-weight: 400; letter-spacing: .18em; color: var(--mid); text-transform: uppercase; }
+  .list { display: flex; flex-direction: column; gap: 2px; max-height: 44vh; overflow: auto; }
+  .row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; padding: 6px 8px; border-radius: 5px; text-align: left; align-items: center; }
+  .row:hover { background: rgba(255,255,255,.04); } .row.on { background: rgba(95,211,198,.09); box-shadow: 0 0 0 1px rgba(95,211,198,.35) inset; }
+  .row .t { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .row .s { color: var(--dim); font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row .n { color: var(--dim); font-size: 10px; } .row .n.has { color: var(--warm); }
+  .trow { display: grid; grid-template-columns: minmax(0, 1fr) 24px; align-items: center; gap: 4px; }
+  .tdel { width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--faint); color: var(--dim); font-size: 10px; }
+  .tdel:hover { color: var(--hot); border-color: var(--hot); } .tdel.armed { background: var(--hot); color: #0b0c0e; border-color: var(--hot); }
+  #delUnused.armed { background: var(--hot); color: #0b0c0e !important; }
+  .group { color: var(--dim); font-size: 9px; letter-spacing: .1em; padding: 8px 8px 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #compose { display: flex; gap: 6px; margin-top: 10px; align-items: center; flex-wrap: wrap; }
+  select, .btn, input[type=text] { border: 1px solid #262a30; border-radius: 5px; padding: 5px 8px; color: var(--mid); }
+  select { appearance: none; -webkit-appearance: none; max-width: 100%; }
+  select option { background: #111317; color: var(--fg); }
+  .btn:hover { color: var(--fg); border-color: var(--dim); } .btn.go { color: var(--calm); border-color: rgba(95,211,198,.5); } .btn:disabled { opacity: .35; cursor: default; }
+  #composeSay { color: var(--dim); font-size: 10px; margin-top: 6px; min-height: 14px; }
+
+  #head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+  #title { color: var(--fg); } #sub { color: var(--dim); }
+  #legend { display: flex; gap: 12px; color: var(--dim); font-size: 10px; margin-left: auto; }
+  #legend i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+  #timeline { display: flex; flex-direction: column; gap: 10px; user-select: none; }
+  .line { display: grid; grid-template-columns: 54px repeat(2, minmax(0, 1fr)); gap: 10px; align-items: stretch; }
+  .line .at { color: var(--dim); font-size: 10px; padding-top: 18px; text-align: right; }
+  .sec { border-radius: 6px; padding: 4px 5px 6px; background: rgba(255,255,255,.02); box-shadow: 0 0 0 1px var(--line) inset; cursor: pointer; }
+  .sec:hover { box-shadow: 0 0 0 1px #2c3138 inset; }
+  .sec.sel { background: rgba(242,166,90,.08); box-shadow: 0 0 0 1px rgba(242,166,90,.7) inset; }
+  .sec.kept { box-shadow: 0 0 0 1px rgba(95,211,198,.45) inset; } .sec.kept.sel { box-shadow: 0 0 0 1px rgba(242,166,90,.8) inset; }
+  .sec .sh { display: flex; justify-content: space-between; color: var(--dim); font-size: 9px; letter-spacing: .08em; margin-bottom: 3px; }
+  .sec.sel .sh { color: var(--warm); } .sec.kept .sh .k { color: var(--calm); }
+  .barsrow { display: grid; grid-template-columns: repeat(16, minmax(0, 1fr)); gap: 2px; }
+  .bar { display: grid; grid-template-rows: repeat(4, 7px); gap: 1px; padding: 2px 1px; border-radius: 3px; cursor: pointer; }
+  .bar:hover { background: rgba(255,255,255,.08); }
+  .bar.cur { box-shadow: 0 0 0 1px rgba(242,166,90,.9) inset; }
+  .bar.now { background: rgba(255,255,255,.16); box-shadow: 0 0 0 1px rgba(255,255,255,.5) inset; }
+  .bar i { display: block; border-radius: 1px; background: rgba(255,255,255,.05); }
+  .bar .steps { display: grid; grid-template-columns: repeat(16, 1fr); gap: 0; background: none; }
+  .bar .steps b { display: block; } .bar .steps b.on { background: var(--c); }
+  #suggest { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 0 0 10px; min-height: 24px; }
+  #suggest .lbl { margin-right: 2px; }
+  .sug { display: inline-flex; align-items: center; gap: 6px; border: 1px solid #262a30; border-radius: 5px; padding: 3px 8px 3px 4px; color: var(--mid); }
+  .sug:hover { color: var(--fg); border-color: var(--dim); } .sug.on { color: var(--warm); border-color: rgba(242,166,90,.7); background: rgba(242,166,90,.08); }
+  .sug .tag { font-size: 9px; letter-spacing: .06em; padding: 1px 5px; border-radius: 3px; color: #0b0c0e; background: var(--c); }
+  .sug .also { color: var(--dim); font-size: 10px; } .sug .also i { font-style: normal; color: var(--c); }
+  #sugNone { color: var(--dim); font-size: 10px; }
+  #sugLegend { display: flex; gap: 10px; color: var(--dim); font-size: 10px; margin-left: auto; }
+  #sugLegend i { display: inline-block; width: 12px; height: 3px; border-radius: 1px; margin-right: 4px; vertical-align: 2px; }
+  .sc { display: grid; grid-template-rows: repeat(3, 2px); gap: 2px; margin-top: 5px; }
+  .sc i { display: block; height: 2px; border-radius: 1px; background: var(--c); opacity: .3; min-width: 1px; }
+  .sc i.hi { opacity: 1; }
+  .sec .sh .sg { margin-left: 6px; color: var(--c); }
+  .row .sgn { color: var(--dim); font-size: 10px; margin-right: 6px; white-space: nowrap; }
+  #selbar { display: flex; align-items: center; gap: 10px; margin-top: 12px; flex-wrap: wrap; min-height: 30px; }
+  #selSay { color: var(--mid); } #name { flex: 1; min-width: 180px; max-width: 420px; }
+  #name::placeholder { color: var(--dim); }
+  #rep .row { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .stars { display: flex; gap: 3px; margin: 3px 0; } .star { color: #343a42; font-size: 20px; line-height: 1; padding: 1px; } .star:hover { color: var(--mid); } .star.on { color: var(--warm); }
+  a.mp3 { color: var(--calm); text-decoration: none; } a.mp3:hover { text-decoration: underline; } .bad { color: var(--hot); }
+  .ib { width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--faint); font-size: 10px; color: var(--mid); }
+  .ib:hover { border-color: var(--dim); color: var(--fg); } .ib.on { color: var(--calm); border-color: var(--calm); } .ib.x:hover { color: var(--hot); border-color: var(--hot); }
+  #status { padding: 0 18px 14px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .empty { color: var(--dim); padding: 8px; }
+  @media (max-width: 900px) { #page { grid-template-columns: minmax(0, 1fr); } .line { grid-template-columns: 40px minmax(0, 1fr); } .line .sec:nth-child(3) { grid-column: 2; } }
+</style>
+</head>
+<body>
+<div id="top">
+  <a id="mark" href="#" onclick="location.href = location.protocol + '//' + location.hostname + ':8792/'; return false;" title="to the player"><span class="orb" id="orb"></span><span>cad<span class="mark-accent">a</span>nce</span></a>
+  <span id="what">repertoire</span>
+  <a class="nav on" href="/" title="the editor: mark passages of composed tracks and add them">editor</a>
+  <a class="nav" href="/list" title="the list: listen, rate, sort, delete">list</a>
+  <div id="spacer"></div>
+  <span id="sync" title="the repertoire's copy in the bucket"></span>
+  <button class="b" id="play" title="play from the playhead (space)">▶</button>
+  <button class="b off" id="stop" title="stop" hidden>■</button>
+  <label class="lbl" title="tempo: type, or scroll"><input id="bpm" type="number" min="60" max="200" step="1" inputmode="numeric"> bpm</label>
+</div>
+<div id="page">
+  <div style="display:flex;flex-direction:column;gap:14px;min-width:0">
+    <section class="panel" aria-label="composed tracks">
+      <h2 style="display:flex;align-items:center;gap:8px">Tracks composed by the brains <button id="delUnused" class="btn" hidden title="delete every track no repertoire piece came from (click twice)" style="margin-left:auto;font-size:9px;padding:2px 7px;color:var(--hot);border-color:rgba(242,84,91,.45)">delete unused</button></h2>
+      <div class="list" id="tracks"></div>
+      <div id="compose"><select id="model" aria-label="brain" title="the brain that composes the next track"></select><button class="btn" id="composeB" title="ask the player's track factory for one more track of this brain (about 6 minutes for 288 bars)">compose a track</button></div>
+      <div id="composeSay"></div>
+    </section>
+    <section class="panel" id="rep" aria-label="repertoire">
+      <h2>Repertoire <span id="repN" class="lbl"></span></h2>
+      <div class="list" id="items"></div>
+    </section>
+  </div>
+  <section class="panel" aria-label="track">
+    <div id="head"><span id="title">pick a track</span><span id="sub"></span>
+      <span id="legend"><span><i style="background:var(--beat)"></i>beat</span><span><i style="background:var(--bass)"></i>bass</span><span><i style="background:var(--lead)"></i>lead</span><span><i style="background:var(--air)"></i>air</span></span></div>
+    <div id="suggest" hidden><span class="lbl">suggested</span><span id="sugList" style="display:contents"></span>
+      <span id="sugLegend" title="the three lines under each passage: its scores, 0 to 1 by length; bright where the passage is among this track's high ones"><span><i style="background:var(--s-like)"></i>like the material</span><span><i style="background:var(--s-synth)"></i>synth line</span><span><i style="background:var(--s-break)"></i>breakbeat</span></span></div>
+    <div id="timeline"></div>
+    <div id="selbar">
+      <span id="selSay"></span>
+      <input type="text" id="name" placeholder="a name for the section (optional)" hidden>
+      <button class="btn" id="loopB" hidden title="play the marked passages round and round">▶ loop the marked</button>
+      <button class="btn go" id="addB" hidden title="export the marked passages as one piece: its bars for the Auto DJ and a 192 kbit/s MP3, saved to the repertoire in the bucket">add to the repertoire</button>
+      <button class="btn" id="clearB" hidden>clear</button>
+    </div>
+  </section>
+</div>
+<div id="status"></div>
+<script type="module" src="curator.js"></script>
+</body>
+</html>

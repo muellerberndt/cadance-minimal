@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cadance Repertoire · list</title>
+<style>
+  :root { --bg: #08090b; --panel: #0e1013; --fg: #c9ced6; --mid: #8d959f; --dim: #6b737d; --faint: #1a1d22; --line: #16191d;
+          --calm: #5fd3c6; --warm: #f2a65a; --hot: #f2545b; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--fg); font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; -webkit-font-smoothing: antialiased; }
+  button, input { font: inherit; color: inherit; background: none; border: 0; padding: 0; }
+  button { cursor: pointer; }
+  :focus-visible { outline: 1px solid var(--dim); outline-offset: 2px; }
+  #top { display: flex; align-items: center; gap: 18px; padding: 14px 18px; flex-wrap: wrap; }
+  #mark { letter-spacing: .42em; display: flex; align-items: center; gap: 9px; color: inherit; text-decoration: none; }
+  .accent { color: var(--warm); }
+  #what { color: var(--mid); letter-spacing: .14em; }
+  #top a.nav { color: var(--mid); text-decoration: none; letter-spacing: .12em; padding: 3px 8px; border-radius: 4px; border: 1px solid transparent; }
+  #top a.nav:hover { color: var(--fg); border-color: #262a30; } #top a.nav.on { color: var(--warm); border-color: rgba(242,166,90,.45); }
+  #spacer { flex: 1; }
+  #filter { border: 1px solid #262a30; border-radius: 5px; padding: 5px 8px; color: var(--fg); min-width: 220px; }
+  #filter::placeholder { color: var(--dim); }
+  #count { color: var(--dim); }
+  #wrap { padding: 0 18px 18px; }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font-weight: 400; color: var(--dim); letter-spacing: .08em; font-size: 10px; padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; user-select: none; }
+  th.sort { cursor: pointer; } th.sort:hover { color: var(--fg); } th.on { color: var(--warm); }
+  th.on::after { content: ' ▾'; } th.on.up::after { content: ' ▴'; }
+  td { padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: middle; color: var(--mid); }
+  td.name { color: var(--fg); max-width: 520px; }
+  td.name .t { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  td.name .s { display: block; color: var(--dim); font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  tr:hover td { background: rgba(255,255,255,.025); }
+  tr.playing td { background: rgba(95,211,198,.07); }
+  .play { width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--faint); color: var(--mid); font-size: 11px; }
+  .play:hover { border-color: var(--dim); color: var(--fg); } tr.playing .play { color: var(--calm); border-color: var(--calm); }
+  .play:disabled { opacity: .3; cursor: default; }
+  .stars { display: inline-flex; gap: 3px; } .star { color: #343a42; font-size: 24px; line-height: 1; padding: 2px; } .star:hover, .star.hover { color: var(--mid); } .star.on { color: var(--warm); }
+  .tag { display: inline-block; padding: 0 5px; border-radius: 3px; font-size: 9px; letter-spacing: .1em; color: var(--calm); border: 1px solid rgba(95,211,198,.4); margin-left: 6px; vertical-align: 1px; }
+  .rm { width: 24px; height: 24px; border-radius: 50%; border: 1px solid var(--faint); color: var(--dim); font-size: 10px; }
+  .rm:hover { color: var(--hot); border-color: var(--hot); } .rm.armed { color: #0b0c0e; background: var(--hot); border-color: var(--hot); }
+  .rename { border-bottom: 1px solid var(--dim); width: 100%; color: var(--fg); }
+  input.ck { width: 14px; height: 14px; accent-color: #f2a65a; cursor: pointer; vertical-align: middle; }
+  tr.checked td { background: rgba(242,166,90,.06); }
+  #bulk { display: flex; align-items: center; gap: 10px; }
+  #bulk[hidden] { display: none; }
+  #delSel { border: 1px solid rgba(242,84,91,.6); color: var(--hot); border-radius: 5px; padding: 4px 10px; }
+  #delSel:hover { background: rgba(242,84,91,.12); } #delSel.armed { background: var(--hot); color: #0b0c0e; }
+  #clearSel { color: var(--dim); } #clearSel:hover { color: var(--fg); }
+  #player { position: sticky; bottom: 0; display: flex; align-items: center; gap: 14px; padding: 10px 18px; background: var(--panel); border-top: 1px solid var(--line); }
+  #now { color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
+  #bar { flex: 2; height: 14px; border-radius: 7px; background: var(--faint); cursor: pointer; position: relative; background-clip: content-box; padding: 4px 0; }
+  #bar:hover #fill { background: #7fe6da; }
+  #hoverT { position: absolute; top: -20px; transform: translateX(-50%); color: var(--fg); font-size: 10px; pointer-events: none; white-space: nowrap; }
+  #fill { position: absolute; left: 0; top: 4px; bottom: 4px; border-radius: 3px; background: var(--calm); width: 0; }
+  #time { color: var(--dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  #status { color: var(--dim); padding: 6px 18px; min-height: 22px; }
+  .empty { color: var(--dim); padding: 18px 8px; }
+</style>
+</head>
+<body>
+<div id="top">
+  <a id="mark" href="#" title="to the player"><span>cad<span class="accent">a</span>nce</span></a>
+  <span id="what">repertoire</span>
+  <a class="nav" href="/" title="the editor: mark passages of composed tracks and add them">editor</a>
+  <a class="nav on" href="/list" title="the list: listen, rate, sort, delete">list</a>
+  <div id="spacer"></div>
+  <span id="bulk" hidden><span id="selN"></span><button id="delSel" title="delete the checked pieces (click twice)">delete checked</button><button id="clearSel">clear</button></span>
+  <input id="filter" type="text" placeholder="filter by name, brain or note">
+  <span id="count"></span>
+</div>
+<div id="wrap">
+  <table>
+    <thead><tr>
+      <th><input type="checkbox" class="ck" id="ckAll" title="check every piece shown"></th>
+      <th></th>
+      <th class="sort" data-k="name">name</th>
+      <th class="sort" data-k="stars">rating</th>
+      <th class="sort num" data-k="length" style="text-align:right">length</th>
+      <th class="sort" data-k="checkpoint">brain</th>
+      <th class="sort num" data-k="bpm" style="text-align:right">bpm</th>
+      <th class="sort" data-k="created">added</th>
+      <th></th>
+    </tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+</div>
+<div id="status"></div>
+<div id="player">
+  <button class="play" id="pp" title="play or pause (space)">▶</button>
+  <span id="now">nothing playing · ▶ on a row plays its MP3</span>
+  <div id="bar" title="click or drag to jump"><div id="fill"></div><span id="hoverT" hidden></span></div>
+  <span id="time">0:00 / 0:00</span>
+</div>
+<audio id="audio" preload="none"></audio>
+<script>
+// A plain list of the repertoire: listen (the piece's MP3), rate (1 to 5 stars; the Auto DJ prefers more), sort,
+// filter, rename (double-click the name) and delete (✕ twice). It talks to the repertoire site's own routes.
+const $ = (id) => document.getElementById(id);
+const audio = $('audio');
+let items = [], sortKey = localStorage.getItem('repListSort') || 'created', sortUp = localStorage.getItem('repListUp') === '1';
+let current = null, armed = null, bulkArmed = false;
+const checked = new Set();
+document.getElementById('mark').onclick = (e) => { e.preventDefault(); location.href = `${location.protocol}//${location.hostname}:8792/`; };
+
+const say = (text) => { $('status').textContent = text || ''; };
+const mss = (s) => (Number.isFinite(s) ? `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}` : '–');
+const secs = (it) => (it.length && it.bpm ? (it.length * 240) / it.bpm : null);
+async function api(path, body) {
+  const r = await fetch(path, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {});
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || j.error) throw new Error(j.error || `HTTP ${r.status}`);
+  return j;
+}
+async function load() {
+  try { items = (await api('/api/repertoire')).items || []; } catch (e) { say(`the repertoire does not answer: ${e.message}`); return; }
+  paint();
+}
+function sorted() {
+  const f = $('filter').value.trim().toLowerCase();
+  const rows = items.filter((it) => !f || `${it.name} ${it.checkpoint} ${it.note || ''}`.toLowerCase().includes(f));
+  const val = (it) => (sortKey === 'length' ? it.length || 0 : sortKey === 'stars' ? it.stars || 0 : sortKey === 'bpm' ? it.bpm || 0 : String(it[sortKey] || '').toLowerCase());
+  rows.sort((a, b) => { const x = val(a), y = val(b); const c = x < y ? -1 : x > y ? 1 : 0; return sortUp ? c : -c; });
+  return rows;
+}
+function paint() {
+  for (const th of document.querySelectorAll('th.sort')) { th.classList.toggle('on', th.dataset.k === sortKey); th.classList.toggle('up', th.dataset.k === sortKey && sortUp); }
+  const rows = sorted(), body = $('rows');
+  body.innerHTML = '';
+  $('count').textContent = `${rows.length} of ${items.length} pieces`;
+  for (const id of [...checked]) if (!items.some((x) => x.id === id)) checked.delete(id);
+  paintBulk(rows);
+  if (!rows.length) { const tr = document.createElement('tr'); tr.innerHTML = '<td colspan="9" class="empty">no pieces</td>'; body.append(tr); return; }
+  for (const it of rows) {
+    const tr = document.createElement('tr'); tr.dataset.id = it.id;
+    if (current && current.id === it.id && !audio.paused) tr.classList.add('playing');
+    const play = document.createElement('button'); play.className = 'play'; play.textContent = current && current.id === it.id && !audio.paused ? '❚❚' : '▶';
+    play.title = 'play this piece'; play.onclick = () => toggle(it);
+    const name = document.createElement('td'); name.className = 'name';
+    const sid = /SID chip/.test(it.name || '') ? '<span class="tag">SID</span>' : '';
+    name.innerHTML = `<span class="t"></span><span class="s"></span>`;
+    name.querySelector('.t').textContent = it.name || it.id; if (sid) name.querySelector('.t').insertAdjacentHTML('beforeend', sid);
+    name.querySelector('.s').textContent = it.note || '';
+    name.title = `${it.name}\n${it.note || ''}\ndouble-click to rename`;
+    name.ondblclick = () => renameRow(it, name);
+    const rate = document.createElement('td'); const stars = document.createElement('span'); stars.className = 'stars';
+    for (let n = 1; n <= 5; n++) {
+      const s = document.createElement('button'); s.className = 'star' + (n <= (it.stars || 0) ? ' on' : ''); s.textContent = '★';
+      s.title = n === it.stars ? 'click again to clear the rating' : `${n} star${n > 1 ? 's' : ''}`;
+      s.onclick = () => setStars(it, n === it.stars ? 0 : n);
+      stars.append(s);
+    }
+    rate.append(stars);
+    const len = document.createElement('td'); len.className = 'num'; len.textContent = `${it.length || '–'} bars · ${mss(secs(it))}`;
+    const brain = document.createElement('td'); brain.textContent = (it.checkpoint || '').replace(/^slate_/, ''); brain.title = it.checkpoint || '';
+    const bpm = document.createElement('td'); bpm.className = 'num'; bpm.textContent = it.bpm ? Math.round(it.bpm) : '–';
+    const added = document.createElement('td'); added.textContent = (it.created || '').replace('T', ' ').slice(5, 16);
+    const rm = document.createElement('button'); rm.className = 'rm'; rm.textContent = '✕'; rm.title = 'delete this piece (click twice)';
+    rm.onclick = () => remove(it, rm);
+    const ck = document.createElement('input'); ck.type = 'checkbox'; ck.className = 'ck'; ck.checked = checked.has(it.id);
+    ck.title = 'check for deleting several at once';
+    ck.onchange = () => { if (ck.checked) checked.add(it.id); else checked.delete(it.id); tr.classList.toggle('checked', ck.checked); paintBulk(sorted()); };
+    if (ck.checked) tr.classList.add('checked');
+    const cc = document.createElement('td'); cc.append(ck);
+    const c0 = document.createElement('td'); c0.append(play);
+    const c7 = document.createElement('td'); c7.append(rm);
+    tr.append(cc, c0, name, rate, len, brain, bpm, added, c7);
+    body.append(tr);
+  }
+}
+function paintBulk(rows) {
+  const n = checked.size;
+  $('bulk').hidden = !n; $('selN').textContent = `${n} checked`;
+  if (!n) { bulkArmed = false; $('delSel').classList.remove('armed'); $('delSel').textContent = 'delete checked'; }
+  const shown = rows || sorted();
+  $('ckAll').checked = shown.length > 0 && shown.every((it) => checked.has(it.id));
+  $('ckAll').indeterminate = !$('ckAll').checked && shown.some((it) => checked.has(it.id));
+}
+$('ckAll').onchange = () => { const shown = sorted(); for (const it of shown) { if ($('ckAll').checked) checked.add(it.id); else checked.delete(it.id); } paint(); };
+$('clearSel').onclick = () => { checked.clear(); paint(); };
+$('delSel').onclick = async () => {
+  if (!bulkArmed) { bulkArmed = true; $('delSel').classList.add('armed'); $('delSel').textContent = `click again to delete ${checked.size}`; setTimeout(() => { if (bulkArmed) { bulkArmed = false; $('delSel').classList.remove('armed'); $('delSel').textContent = 'delete checked'; } }, 5000); return; }
+  bulkArmed = false;
+  const ids = [...checked]; let done = 0, failed = 0;
+  say(`deleting ${ids.length} pieces…`);
+  for (const id of ids) {
+    try { await api('/api/repertoire/remove', { id }); done++; items = items.filter((x) => x.id !== id); checked.delete(id); if (current && current.id === id) { audio.pause(); current = null; paintPlayer(); } }
+    catch { failed++; }
+  }
+  paint(); say(`deleted ${done} piece${done === 1 ? '' : 's'}${failed ? `, ${failed} could not be deleted` : ''}`);
+};
+async function setStars(it, n) {
+  try { await api('/api/repertoire/rate', { id: it.id, stars: n }); it.stars = n; paint(); say(n ? `${it.name}: ${n} star${n > 1 ? 's' : ''}` : `${it.name}: rating cleared`); }
+  catch (e) { say(`could not rate: ${e.message}`); }
+}
+function remove(it, btn) {
+  if (armed !== it.id) { armed = it.id; for (const b of document.querySelectorAll('.rm.armed')) b.classList.remove('armed'); btn.classList.add('armed'); btn.title = 'click again to delete'; say(`click ✕ again to delete "${it.name}"`); setTimeout(() => { if (armed === it.id) { armed = null; btn.classList.remove('armed'); say(''); } }, 4000); return; }
+  armed = null;
+  api('/api/repertoire/remove', { id: it.id }).then(() => {
+    if (current && current.id === it.id) { audio.pause(); current = null; paintPlayer(); }
+    items = items.filter((x) => x.id !== it.id); paint(); say(`deleted "${it.name}"`);
+  }).catch((e) => say(`could not delete: ${e.message}`));
+}
+function renameRow(it, cell) {
+  const input = document.createElement('input'); input.className = 'rename'; input.value = it.name || '';
+  cell.innerHTML = ''; cell.append(input); input.focus(); input.select();
+  const done = async (save) => {
+    if (save && input.value.trim() && input.value.trim() !== it.name) {
+      try { await api('/api/repertoire/rename', { id: it.id, name: input.value.trim(), note: it.note || '' }); it.name = input.value.trim(); say('renamed'); }
+      catch (e) { say(`could not rename: ${e.message}`); }
+    }
+    paint();
+  };
+  input.onkeydown = (e) => { if (e.key === 'Enter') done(true); if (e.key === 'Escape') done(false); e.stopPropagation(); };
+  input.onblur = () => done(true);
+}
+function toggle(it) {
+  if (current && current.id === it.id) { audio.paused ? audio.play() : audio.pause(); return; }
+  current = it; audio.src = `/repertoire/${it.id}.mp3`; audio.play().catch((e) => say(`cannot play: ${e.message} (the MP3 may still be rendering)`));
+}
+function paintPlayer() {
+  $('pp').textContent = audio.paused ? '▶' : '❚❚'; $('pp').disabled = !current;
+  $('now').textContent = current ? `${current.name}` : 'nothing playing · ▶ on a row plays its MP3';
+  const d = audio.duration, t = audio.currentTime;
+  $('fill').style.width = Number.isFinite(d) && d > 0 ? `${(t / d) * 100}%` : '0';
+  $('time').textContent = `${mss(t)} / ${mss(d)}`;
+  for (const tr of document.querySelectorAll('#rows tr')) {
+    const on = current && tr.dataset.id === current.id && !audio.paused;
+    tr.classList.toggle('playing', !!on); const b = tr.querySelector('.play'); if (b) b.textContent = on ? '❚❚' : '▶';
+  }
+}
+for (const ev of ['play', 'pause', 'timeupdate', 'loadedmetadata', 'ended']) audio.addEventListener(ev, paintPlayer);
+$('pp').onclick = () => { if (current) audio.paused ? audio.play() : audio.pause(); };
+// the seek bar: click or drag to a time (the site answers range requests, so the browser can jump)
+const frac = (e) => { const r = $('bar').getBoundingClientRect(); return Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)); };
+const seek = (e) => { if (current && Number.isFinite(audio.duration)) { audio.currentTime = frac(e) * audio.duration; paintPlayer(); } };
+let seeking = false;
+$('bar').addEventListener('pointerdown', (e) => { seeking = true; $('bar').setPointerCapture(e.pointerId); seek(e); });
+$('bar').addEventListener('pointermove', (e) => {
+  const d = audio.duration, h = $('hoverT');
+  if (Number.isFinite(d) && current) { h.hidden = false; h.style.left = `${frac(e) * 100}%`; h.textContent = mss(frac(e) * d); } else h.hidden = true;
+  if (seeking) seek(e);
+});
+$('bar').addEventListener('pointerup', () => { seeking = false; });
+$('bar').addEventListener('pointerleave', () => { if (!seeking) $('hoverT').hidden = true; });
+for (const th of document.querySelectorAll('th.sort')) th.onclick = () => {
+  if (sortKey === th.dataset.k) sortUp = !sortUp; else { sortKey = th.dataset.k; sortUp = sortKey === 'name' || sortKey === 'checkpoint'; }
+  localStorage.setItem('repListSort', sortKey); localStorage.setItem('repListUp', sortUp ? '1' : '0'); paint();
+};
+$('filter').oninput = paint;
+document.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT') return;
+  if (e.code === 'Space' && current) { e.preventDefault(); audio.paused ? audio.play() : audio.pause(); }
+});
+paintPlayer(); load(); setInterval(() => { if (!document.querySelector('input.rename')) load(); }, 60000);
+</script>
+</body>
+</html>

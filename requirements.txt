@@ -1,0 +1,3 @@
+# The library the brains run on; [fast] adds Numba and SciPy for the compiled paths.
+cadence-net[fast]==0.104.1
+numpy

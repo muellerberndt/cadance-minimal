@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cadance Mixer</title>
+<style>
+  :root {
+    --bg: #08090b; --panel: #0e1013; --fg: #c9ced6; --mid: #8d959f; --dim: #6b737d; --faint: #1a1d22; --line: #16191d;
+    --calm: #5fd3c6; --warm: #f2a65a; --hot: #f2545b;
+    --beat: #c9ced6; --bass: #3987e5; --lead: #d95926; --air: #5fd3c6;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--fg);
+    font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; -webkit-font-smoothing: antialiased; }
+  body { display: flex; flex-direction: column; min-height: 100vh; overflow-x: hidden; }
+  button, select { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; padding: 0; }
+  :focus-visible { outline: 1px solid var(--dim); outline-offset: 3px; }
+
+  #top { display: flex; align-items: center; gap: 18px; padding: 14px 18px; flex-wrap: wrap; }
+  .mark-accent { color: var(--warm); }
+  #mark { letter-spacing: .42em; text-transform: lowercase; display: flex; align-items: center; gap: 9px; font-size: 12px; color: inherit; text-decoration: none; cursor: pointer; }
+  #mark:hover { filter: brightness(1.25); }
+  .orb { width: 7px; height: 7px; border-radius: 50%; background: var(--calm); box-shadow: 0 0 8px var(--calm); flex: none; }
+  .orb.idle { background: var(--dim); box-shadow: none; }
+  .orb.loading { background: #f2c14e; box-shadow: 0 0 8px #f2c14e; animation: pulse 1s ease-in-out infinite; }
+  .orb.down { background: var(--hot); box-shadow: 0 0 10px var(--hot); }
+  @keyframes pulse { 50% { opacity: .35; } }
+  /* a brain loading with a known percent: the orb fills like a clock face; a bar with the percent beside the words */
+  .orb.loading.pct { animation: none; background: conic-gradient(#f2c14e calc(var(--load, 0) * 1%), #4a3d1f 0); }
+  .lbar { display: inline-block; position: relative; flex: none; width: 64px; height: 4px; border-radius: 2px; background: #3a3220; overflow: hidden; vertical-align: middle; color: #f2c14e; }
+  .lbar > span { position: absolute; left: 0; top: 0; bottom: 0; width: 0; border-radius: 2px; background: currentColor; transition: width .5s linear; }
+  .lbar.indet > span { width: 30%; animation: load-run 1.4s ease-in-out infinite; }
+  .lbar.done { color: var(--calm); }
+  @keyframes load-run { from { left: -30%; } to { left: 100%; } }
+  @media (prefers-reduced-motion: reduce) { .lbar.indet > span { animation: none; width: 100%; opacity: .35; } .lbar > span { transition: none; } .orb.loading { animation: none; } }
+  .info.loading { color: #f2c14e; display: flex; align-items: center; gap: 6px; }
+  .info.loading .lt { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  #djLoad { width: 110px; height: 5px; border-radius: 3px; }
+  #djLoad[hidden] { display: none; }
+  #views { display: flex; gap: 12px; }
+  .tab { color: var(--mid); letter-spacing: .14em; text-decoration: none; }
+  .tab.on { color: var(--fg); } .tab:hover { color: var(--fg); }
+  #spacer { flex: 1; }
+  #transport { display: flex; align-items: center; gap: 10px; }
+  .b { width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--faint); font-size: 14px; color: var(--fg); transition: transform .08s, border-color .2s; }
+  .b:hover { border-color: var(--dim); } .b:active { transform: scale(.92); }
+  .b.off { opacity: .35; }
+  #bpmBox { display: flex; align-items: baseline; gap: 4px; color: var(--dim); font-size: 10px; letter-spacing: .1em; cursor: ns-resize; user-select: none; }
+  #kickBtn, #spaceBtn, #bassBtn { color: var(--dim); font-size: 10px; letter-spacing: .1em; } #kickBtn:hover, #spaceBtn:hover, #bassBtn:hover { color: var(--fg); } #kickBtn.on, #spaceBtn.on, #bassBtn.on { color: var(--calm); }
+  #bpm { width: 38px; font: inherit; font-size: 17px; color: var(--mid); background: transparent; border: 0; border-bottom: 1px solid var(--line); text-align: right; cursor: ns-resize; -moz-appearance: textfield; }
+  #bpm::-webkit-outer-spin-button, #bpm::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  #bpm:focus { outline: none; color: var(--fg); cursor: text; }
+
+  /* the desk: three channels and the master */
+  #desk { width: 100%; max-width: 1240px; margin: 0 auto; padding: 4px 18px 10px; display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(150px, .55fr); gap: 14px; align-items: start; }
+  .ch { background: var(--panel); border-radius: 8px; padding: 12px 12px 14px; display: flex; flex-direction: column; gap: 12px; min-width: 0;
+    box-shadow: 0 1px 0 rgba(255,255,255,.05) inset, 0 10px 30px rgba(0,0,0,.45); }
+  .chh { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .num { font-size: 18px; font-weight: 700; color: var(--mid); width: 16px; }
+  .ch select { flex: 1; min-width: 0; color: var(--mid); padding: 4px 18px 4px 8px; border: 1px solid #262a30; border-radius: 5px; appearance: none; -webkit-appearance: none;
+    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%238d959f'/%3E%3C/svg%3E") no-repeat right 6px center;
+    text-overflow: ellipsis; white-space: nowrap; overflow: hidden; }
+  .ch select:hover { color: var(--fg); border-color: #3a3f47; }
+  .ch select option { background: #111317; color: var(--fg); }
+  .sb { width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--faint); font-size: 11px; flex: none; }
+  .sb:hover { border-color: var(--dim); } .sb.on { border-color: var(--calm); color: var(--calm); } .sb.off { opacity: .35; }
+  .lanes { display: grid; gap: 3px; }
+  .lane { display: grid; grid-template-columns: 30px repeat(16, minmax(0, 1fr)); gap: 2px; align-items: center; }
+  .lane .ln { font-size: 8px; letter-spacing: .08em; color: var(--dim); white-space: nowrap; overflow: hidden; }
+  .lane.silent { opacity: .3; }
+  .cell { height: 9px; border-radius: 2px; background: rgba(255,255,255,.04); }
+  .cell.q { margin-left: 2px; }
+  .cell.on { background: var(--c); opacity: .55; }
+  .cell.now { box-shadow: 0 0 0 1px rgba(255,255,255,.35) inset; }
+  .cell.on.now { opacity: 1; box-shadow: 0 0 6px var(--c); }
+  .info { color: var(--dim); font-size: 9px; min-height: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  .strip { display: grid; grid-template-columns: minmax(0, 1fr) 64px; gap: 10px; align-items: start; }
+  .knobs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px 4px; align-content: start; }
+  .knob { display: flex; flex-direction: column; align-items: center; gap: 2px; cursor: ns-resize; user-select: none; touch-action: none; }
+  .knob svg { width: 46px; height: 46px; display: block; }
+  .knob .kt { font-size: 8px; letter-spacing: .14em; color: var(--mid); }
+  .knob .kv { font-size: 9px; color: var(--dim); min-height: 12px; }
+  .knob:focus-visible { outline: 1px solid var(--dim); outline-offset: 2px; border-radius: 4px; }
+  .knob.changed .kv { color: var(--fg); }
+  .arc0 { fill: none; stroke: #23272d; stroke-width: 4; stroke-linecap: round; }
+  .arc1 { fill: none; stroke-width: 4; stroke-linecap: round; }
+  .cap { fill: #17191d; stroke: #2c3138; } .ind { stroke: var(--fg); stroke-width: 2; stroke-linecap: round; }
+  .row2 { grid-column: 1 / -1; display: flex; gap: 8px; align-items: center; justify-content: center; margin-top: 2px; }
+  .tg { border: 1px solid var(--faint); border-radius: 4px; padding: 3px 8px; color: var(--mid); font-size: 10px; letter-spacing: .08em; }
+  .tg:hover { border-color: var(--dim); color: var(--fg); }
+  .tg.mute.on { color: var(--hot); border-color: var(--hot); }
+  .xa { display: flex; border: 1px solid var(--faint); border-radius: 4px; overflow: hidden; }
+  .xa button { padding: 3px 7px; color: var(--dim); font-size: 10px; } .xa button.on { color: var(--fg); background: rgba(255,255,255,.07); }
+
+  .fz { display: flex; gap: 6px; justify-content: center; align-items: stretch; }
+  .fader { position: relative; width: 30px; height: 188px; cursor: ns-resize; touch-action: none; user-select: none; }
+  .fader::before { content: ''; position: absolute; left: 50%; top: 8px; bottom: 8px; width: 4px; margin-left: -2px; border-radius: 2px; background: #1c1f24; }
+  .fader .th { position: absolute; left: 1px; right: 1px; height: 16px; margin-top: -8px; border-radius: 3px; background: linear-gradient(#3a3f47, #23272d); border: 1px solid #4b525b; }
+  .fader .th::after { content: ''; position: absolute; left: 3px; right: 3px; top: 7px; height: 1px; background: var(--fg); }
+  .fader .tick { position: absolute; right: -3px; width: 4px; height: 1px; background: var(--dim); }
+  .meter { width: 8px; height: 188px; border-radius: 2px; background: #121418; display: block; }
+  .master .fader, .master .meter { height: 300px; }
+  .fv { text-align: center; font-size: 9px; color: var(--dim); }
+
+  .master { justify-content: flex-start; }
+  .master .mt { color: var(--mid); letter-spacing: .14em; }
+  .master .fz { margin-top: 6px; }
+
+  #xfwrap { width: 100%; max-width: 1240px; margin: 6px auto 0; padding: 0 18px 8px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(150px, .55fr); gap: 14px; }
+  #xfbox { grid-column: 1 / 4; display: flex; align-items: center; gap: 12px; justify-content: center; }
+  #xfbox .lbl { color: var(--dim); letter-spacing: .14em; font-size: 10px; }
+  #xf { position: relative; width: min(360px, 60%); height: 30px; cursor: ew-resize; touch-action: none; user-select: none; }
+  #xf::before { content: ''; position: absolute; top: 50%; left: 8px; right: 8px; height: 4px; margin-top: -2px; border-radius: 2px; background: #1c1f24; }
+  #xf .th { position: absolute; top: 1px; bottom: 1px; width: 16px; margin-left: -8px; border-radius: 3px; background: linear-gradient(90deg, #3a3f47, #23272d); border: 1px solid #4b525b; }
+  /* the Auto DJ */
+  #dj { width: 100%; max-width: 1240px; margin: 0 auto; padding: 0 18px 10px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  #djB { border: 1px solid var(--faint); border-radius: 5px; padding: 6px 12px; letter-spacing: .16em; color: var(--mid); }
+  #djB:hover { border-color: var(--dim); color: var(--fg); } #djB.on { color: var(--calm); border-color: var(--calm); box-shadow: 0 0 10px rgba(95,211,198,.25); }
+  #djModel { color: var(--mid); padding: 5px 20px 5px 8px; border: 1px solid #262a30; border-radius: 5px; appearance: none; -webkit-appearance: none; max-width: 340px;
+    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%238d959f'/%3E%3C/svg%3E") no-repeat right 6px center; }
+  #djModel:disabled { opacity: .55; cursor: default; } #djModel option { background: #111317; color: var(--fg); }
+  .djt { display: flex; align-items: center; gap: 4px; color: var(--dim); letter-spacing: .1em; font-size: 10px; }
+  .djt button { border: 1px solid var(--faint); border-radius: 4px; padding: 3px 7px; color: var(--mid); } .djt button:hover { color: var(--fg); border-color: var(--dim); } .djt button.on { color: var(--fg); background: rgba(255,255,255,.07); }
+  #djBrains { display: flex; gap: 5px; flex-wrap: wrap; align-items: center; }
+  .chip { display: inline-flex; align-items: center; gap: 5px; border: 1px solid rgba(95,211,198,.4); border-radius: 12px; padding: 3px 4px 3px 9px; color: var(--fg); font-size: 10px; }
+  .chip button { color: var(--dim); width: 15px; height: 15px; border-radius: 50%; font-size: 9px; } .chip button:hover { color: var(--hot); }
+  body.djon .chip button { opacity: .35; pointer-events: none; }
+  #djModel { width: 250px; max-width: 250px; padding: 5px 8px; background: none; font: inherit; font-size: 11px; color: var(--fg); }
+  #djModel::-webkit-search-cancel-button { -webkit-appearance: none; }
+  #djModel::placeholder { color: var(--dim); } #djModel:focus { outline: none; border-color: var(--calm); }
+  .djpick { display: flex; align-items: center; gap: 6px; color: var(--dim); letter-spacing: .1em; font-size: 10px; }
+  #djSay { color: var(--mid); flex: 1; min-width: 200px; line-height: 1.4; }   /* the whole line, wrapped: a cut readout looked stuck (owner, 26 Nov 10:15) */
+  .what { flex: 1; min-width: 0; color: var(--mid); font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 4px 2px; }
+  .what.rep { color: var(--warm); } .what.free { color: var(--dim); }
+  .role { font-size: 8px; letter-spacing: .16em; color: var(--dim); flex: none; }
+  .role.primary { color: var(--calm); } .role.in { color: var(--warm); } .role.out { color: var(--mid); }
+  .ch.primary { box-shadow: 0 0 0 1px rgba(95,211,198,.55), 0 10px 30px rgba(0,0,0,.45); }
+  .ch.auto .sb { opacity: .3; pointer-events: none; }
+  .tg.fxb { min-width: 52px; } .tg.fxb.on { color: var(--warm); border-color: var(--warm); }
+  /* the visuals: the player's, driven by the primary deck and the master */
+  #vizbox { position: relative; width: calc(100% - 36px); max-width: 1204px; margin: 4px auto 12px; border-radius: 8px; overflow: hidden; background: #000;
+    box-shadow: 0 1px 0 rgba(255,255,255,.05) inset, 0 10px 30px rgba(0,0,0,.45); }
+  #viz { display: block; width: 100%; height: clamp(240px, 44vh, 520px); }
+  #vizbar { position: absolute; top: 8px; right: 8px; display: flex; gap: 6px; opacity: .25; transition: opacity .2s; }
+  #vizbox:hover #vizbar { opacity: 1; }
+  #vizbar select, #vizbar button { border: 1px solid #2c3138; border-radius: 5px; padding: 4px 8px; color: var(--mid); background: rgba(0,0,0,.6); }
+  #vizbar button:hover, #vizbar select:hover { color: var(--fg); border-color: var(--dim); }
+  #vizbox:fullscreen { width: 100vw; max-width: none; margin: 0; border-radius: 0; } #vizbox:fullscreen #viz { height: 100vh; }
+  #status { padding: 0 18px 14px; color: var(--mid); max-width: 1240px; margin: 0 auto; width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  @media (max-width: 980px) {
+    #desk, #xfwrap { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    #xfbox { grid-column: 1 / -1; }
+  }
+  @media (max-width: 620px) {
+    #desk, #xfwrap { grid-template-columns: minmax(0, 1fr); padding-left: 16px; padding-right: 16px; }
+    #top { padding: 12px 16px; }
+    #status { padding: 0 16px 14px; }
+  }
+</style>
+</head>
+<body>
+<div id="top">
+  <a id="mark" href="/" title="back to the player"><span class="orb idle" id="orb"></span><span>cad<span class="mark-accent">a</span>nce</span></a>
+  <nav id="views"><a class="tab" href="/">player</a><a class="tab on" href="/mixer">mixer</a><a class="tab" href="#" onclick="location.href = location.protocol + '//' + location.hostname + ':8794/list'; return false;" title="the repertoire: the pieces the Auto DJ plays">repertoire</a></nav>
+  <div id="spacer"></div>
+  <div id="transport">
+    <button class="b" id="play" title="play all decks (space)">▶</button>
+    <button class="b off" id="stop" title="stop all decks: each starts a new composition on ▶">■</button>
+    <label id="bpmBox" title="tempo of all decks: drag up/down, scroll, or type; double-click for the brains' own"><input id="bpm" type="number" min="60" max="200" step="1" inputmode="numeric"><span>bpm</span></label>
+    <button id="kickBtn" aria-pressed="true" title="kick boost: quiet bass drums are raised toward a set level against the mix, every bass drum gets a lifted attack and more body (kept in this browser)">kick boost</button>
+    <button id="spaceBtn" aria-pressed="true" title="space: the synth voices get the reverb and delay the recordings have (the sounds were fitted dry); bass stays dry, nothing under 200 Hz reaches the effects (kept in this browser)">space</button>
+    <button id="bassBtn" aria-pressed="true" title="bass: the bass voice sits against the drums as it does in the recordings (a measured gain; the sound itself unchanged) (kept in this browser)">bass</button>
+  </div>
+</div>
+<div id="dj"><button id="djB" aria-pressed="false" title="Auto DJ: one brain composes whole tracks and the autopilot mixes them on the three decks on sections of 16 or 32 bars. One deck is the primary; effects are used on the others only.">auto dj</button><span id="djBrains" title="the approved brains: the Auto DJ composes new tracks with these only"></span><label class="djpick" title="the brain the Auto DJ composes with: pick one of the ten best runs or type any run's name, then Enter. A change takes effect with the next track, also while the Auto DJ plays.">brain<input id="djModel" type="search" list="djModels" placeholder="type or pick a run" spellcheck="false" autocomplete="off" aria-label="the brain the Auto DJ composes with"></label><datalist id="djModels"></datalist><span class="djt" title="tempo of the set (also the bpm field above: drag, scroll or type)">tempo<button data-bpm="own">own</button><button data-bpm="140">140</button><button data-bpm="152">152</button></span><span class="djt" title="how fast the Auto DJ mixes: the length of a section in bars. Tracks, blends and breaks are counted in sections, so 16 mixes twice as fast as 32. Set it while the Auto DJ is off.">mix every<button data-sec="16">16</button><button data-sec="32">32</button>bars</span><span id="djLoad" class="lbar" role="progressbar" aria-label="the Auto DJ loads a brain" aria-valuemin="0" aria-valuemax="100" hidden><span></span></span><div id="djSay" aria-live="polite"></div></div>
+<main id="desk"></main>
+<div id="xfwrap"><div id="xfbox"><span class="lbl">A</span><div id="xf" role="slider" tabindex="0" aria-label="crossfader" title="crossfader: decks set to A or B fade against each other; double-click centers"><div class="th"></div></div><span class="lbl">B</span></div></div>
+<section id="vizbox" aria-label="visuals"><canvas id="viz"></canvas><div id="vizbar"><select id="vizMode" title="visualization (m: next)" aria-label="visualization"></select><button id="vizFull" title="full screen (f); escape leaves it">⛶ full screen</button></div></section>
+<div id="status"></div>
+<script type="module" src="mixer.js"></script>
+<div id="radioGate" hidden><button id="radioGo"><span class="rdot"></span>Cadance Live Radio<small>click to tune in</small></button></div>
+<style>
+  #radioGate { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(8,9,11,.78); backdrop-filter: blur(6px); z-index: 50; }
+  #radioGate[hidden] { display: none; }
+  #radioGo { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 28px 44px; border-radius: 22px; cursor: pointer; border: 0;
+    color: #0b0c0e; background: linear-gradient(90deg, #5fd3c6, #f2a65a 55%, #f2545b); font: 600 18px/1.2 ui-monospace, Menlo, monospace; letter-spacing: .16em;
+    box-shadow: 0 0 40px rgba(95,211,198,.4), 0 0 80px rgba(242,84,91,.25); }
+  #radioGo small { font-size: 10px; letter-spacing: .2em; opacity: .7; font-weight: 400; }
+  #radioGo .rdot { width: 12px; height: 12px; border-radius: 50%; background: #0b0c0e; animation: rpulse 1.6s ease-in-out infinite; }
+  @keyframes rpulse { 50% { transform: scale(.55); opacity: .5; } }
+</style>
+</body>
+</html>
