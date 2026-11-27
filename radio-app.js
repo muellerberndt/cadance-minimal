@@ -67,6 +67,7 @@ function tick() {                     // the bar lines within the next 150 ms: t
   if (!ctx || ctx.state !== 'running') return;
   while (clock.next <= ctx.currentTime + 0.15) {
     const t = clock.next, G = clock.bar++;
+    if (window.__radioApp.trace) { const L = (window.__radioApp.lines ||= []); L.push([G, t]); if (L.length > 256) L.shift(); }   // tests read the lines
     clock.next = t + barLen();
     try { if (dj) dj.onBar(G, t); } catch (e) { say(`auto dj: ${e.message}`); }
     for (const d of decks) later(t, () => d.onBar(G, t));
@@ -143,7 +144,7 @@ class Deck {
   // ---- a track: its MP3 starts on the next bar line (later lines while it decodes: the track then starts a few bars in)
   cueTrack(track) {
     this.endTrack();
-    this.track = track; this.trackAt = 0; this.playing = true; this.now = null;
+    this.track = track; this.trackAt = 0; this.playing = true; this.now = null; this.engIndex = -1;
     this.startBar = clock.bar; const line = clock.next;          // the next bar line is bar clock.bar
     trackNo++; track.no = trackNo;
     (R.onDeck ||= new Set()).add(track.id);
@@ -152,7 +153,8 @@ class Deck {
     this.trim = Number.isFinite(lufs) && h.entry.lufs !== null ? clamp(-16 - lufs, -3, 3) : 0;
     this.n.pre.gain.setValueAtTime(PRE * Math.pow(10, this.trim / 20), ctx.currentTime);
     pulse('cue', this.d);
-    if (mixer) { mixer.setTrack(this.d, mixTrack(this)); mixer.setWave(this.d, { bars: track.bars }); }      // the note wave first
+    if (mixer) { mixer.setTrack(this.d, mixTrack(this)); mixer.setWave(this.d, { bars: track.bars }); this.waveBars = track.bars.length; }  // the note wave first
+    if (R.isLive(track.id)) { this.engineCue(track); return; }            // a live brain's track: the instrument plays its notes
     (async () => {
       if (await R.ranged(track.id)) return this.segments(track, line);     // by segments: a store with byte ranges
       this.play(await R.decode(track.id), track, line);                    // the whole track at once
@@ -211,12 +213,44 @@ class Deck {
     if (mixer) mixer.setWave(this.d, buf);
     if (window.__radioApp) (window.__radioApp.starts ||= []).push({ deck: this.d, id: track.id, when, line, offset: k * len, bar: this.startBar + k });
   }
+  // A live track's notes are played by the instrument (deckworklet.js, engine.mjs): the deck's engine gets the track's
+  // sound pool and its bars two ahead; it begins bar 0 on the cue's line, as its bar lines are the radio's (alignEngine).
+  // A brain slower than the music: the engine plays its last bar again until the next one is composed. Past the end
+  // of a finished track its last 32 bars go round, as on a file deck.
+  engineCue(track) {
+    this.mode = 'engine'; this.fed = 0; this.queued = 0; this.engIndex = -1;
+    ensureEngine().then((E) => {
+      if (!E || this.track !== track) return;
+      E.node.port.postMessage({ type: 'silence', deck: this.d });
+      E.node.port.postMessage({ type: 'pool', deck: this.d, pool: track.pool });
+      this.src = { engine: true };
+      this.feedEngine();
+    });
+  }
+  feedEngine() {
+    const t = this.track;
+    if (!t || this.mode !== 'engine' || !engine || !engine.node) return;
+    while (this.queued < 2) {
+      const n = t.bars.length, b = this.fed < n ? t.bars[this.fed] : t.done && n ? t.bars[barOf(n, this.fed)] : null;
+      if (!b) break;
+      engine.node.port.postMessage({ type: 'queue', deck: this.d, tokens: b.tokens, mods: b.mods, patterns: b.patterns, patches: b.patches });
+      this.fed++; this.queued++;
+    }
+  }
+  engineBar(m) {                                   // the engine began a bar: the next queued one, or its last one again
+    if (this.mode !== 'engine' || !this.track) return;
+    if (this.queued > m.queued) this.engIndex++;
+    this.queued = m.queued;
+    if (window.__radioApp.trace) { const B = (window.__radioApp.engineBars ||= []); B.push([this.d, m.t, this.engIndex]); if (B.length > 256) B.shift(); }
+    this.feedEngine();
+  }
   onBar(G, t) {
     if (!this.playing || !this.track) return;
     const i = G - this.startBar;
     if (i < 0) return;
-    const n = this.track.bars.length, k = barOf(n, i);
+    const n = this.track.bars.length, k = this.mode === 'engine' ? (this.engIndex < 0 ? -1 : barOf(n, this.engIndex)) : barOf(n, i);
     this.trackAt = i + 1; this.lineAt = t; this.now = this.track.bars[k] || null; this.barIndex = k;
+    if (this.mode === 'engine' && mixer && n - (this.waveBars || 0) >= 8) { mixer.setWave(this.d, { bars: this.track.bars }); this.waveBars = n; }   // the note wave grows
     frontBar(this);
   }
   endTrack() {
@@ -224,8 +258,10 @@ class Deck {
     if (!tr) return;
     this.track = null; this.playing = false; this.now = null; this.failed = false; this.buffer = null;
     pulse('leave', this.d);
+    const mode = this.mode; this.mode = null;
     if (mixer) { mixer.setTrack(this.d, null); mixer.setWave(this.d, null); }
-    if (this.src && ctx) {                        // the sounding sources fade out in 10 ms and stop
+    if (mode === 'engine' && engine && engine.node) engine.node.port.postMessage({ type: 'silence', deck: this.d });
+    else if (this.src && ctx) {                   // the sounding sources fade out in 10 ms and stop
       const { s, g, run } = this.src, t = ctx.currentTime, all = run ? run.list : [s];
       g.gain.setTargetAtTime(0, t, 0.01);
       for (const x of all) { try { x.stop(t + 0.08); } catch { /* not started */ } }
@@ -242,6 +278,49 @@ class Deck {
   light() {}
 }
 const decks = Array.from({ length: DECKS }, (_, d) => new Deck(d));
+// the instrument for a live brain's tracks (deckworklet.js: an engine per deck, on one clock), made when a live set
+// starts: each engine's output runs into its deck's channel strip; the engines' bar lines are put on the radio's
+// (align); the drum one-shots from the track store (kit/), the voices' balance as the server plays them
+let engine = null;
+function ensureEngine() {
+  if (engine) return engine.ready;
+  engine = { node: null };
+  engine.ready = (async () => {
+    await ctx.audioWorklet.addModule('deckworklet.js');
+    const node = new AudioWorkletNode(ctx, 'decks', { numberOfInputs: 0, numberOfOutputs: DECKS, outputChannelCount: Array(DECKS).fill(2) });
+    node.port.onmessage = (e) => {
+      const m = e.data;
+      if (m.type === 'bar' && decks[m.deck]) decks[m.deck].engineBar(m);
+      else if (m.type === 'error') say(`engine: ${String(m.message).split('\n')[0]}`);
+    };
+    node.port.postMessage({ type: 'tempo', bpm });
+    for (const d of decks) node.connect(d.n.pre, d.d);
+    engine.node = node;
+    alignEngine(clock.next + barLen());
+    kitTo(node); balanceTo(node);
+    return engine;
+  })().catch((e) => { say(`engine: ${e.message}`); engine = null; return null; });
+  return engine.ready;
+}
+// the instrument's next bar begins at context time t (a bar line of the radio's clock); afterwards its bars keep step
+function alignEngine(t) { if (engine && engine.node && ctx) engine.node.port.postMessage({ type: 'align', frame: Math.round(t * ctx.sampleRate) }); }
+async function kitTo(node) {
+  try {
+    const index = await (await fetch(`${R.store}kit/index.json`)).json(), kit = {};
+    await Promise.all(Object.entries(index).flatMap(([dev, voices]) => voices.map(async (v) => {
+      const a = await ctx.decodeAudioData(await (await fetch(`${R.store}kit/${dev}/${v}.wav`)).arrayBuffer());
+      (kit[dev] ||= {})[v] = a.getChannelData(0).slice();
+    })));
+    node.port.postMessage({ type: 'samples', kit, sampleRate: ctx.sampleRate });
+  } catch (e) { say(`kit: ${e.message}: the drum models play`); }
+}
+async function balanceTo(node) {
+  try {
+    const j = await (await fetch(`${R.api}/play-reading.json`, { cache: 'no-store' })).json();
+    if (j && j.balance) node.port.postMessage({ type: 'balance', ...j.balance, on: j.balance.on !== false });
+  } catch (e) { say(`balance: ${e.message}: the voices play as written`); }
+}
+
 // the mixer stage (mixerstage.js), built when the DJ view first shows (its shaders take about 130 ms): the decks'
 // tracks and waves, their meters, the master, the clock and a reader of the planner's state; without WebGL the DJ
 // view is the plain canvas below
@@ -265,7 +344,7 @@ function mixerStage() {
   mixAudio();
   for (const d of decks) {                        // the decks' tracks, and the sound of every segment they hold now
     if (!d.track) continue;
-    mixer.setTrack(d.d, mixTrack(d)); mixer.setWave(d.d, d.buffer || { bars: d.track.bars });
+    mixer.setTrack(d.d, mixTrack(d)); mixer.setWave(d.d, d.buffer || { bars: d.track.bars }); d.waveBars = d.track.bars.length;
     if (d.run) for (const s of d.run.list) if (s.buffer && s.from < d.track.bars.length) mixer.addWave(d.d, { fromBar: s.from, audio: s.buffer });
   }
   return mixer;
@@ -327,7 +406,7 @@ async function devBar(d, tr, nb, prev) {
   devv.setBar(nb, prev);
   if (devTrack === tr) return;
   devTrack = tr;
-  const h = R.track(tr.id), pool = await R.pool(h && h.notes && h.notes.pool);
+  const h = R.track(tr.id), pool = h ? await R.pool(h.notes && h.notes.pool) : tr.pool || null;      // a live track: its pool from the server
   if (devTrack !== tr) return;
   devv.setPool(pool);
   devNote = pool ? '' : `no sound pool for ${tr.id} in the store`;
@@ -471,8 +550,8 @@ requestAnimationFrame(frame);
 
 // ---------- the Auto DJ ----------
 function say(text) { notes.push({ at: new Date().toISOString(), text }); if (notes.length > 50) notes.shift(); console.info(`radio: ${text}`); }
-dj = new AutoDJ({ chans: decks, ctx: () => ctx, ensureAudio, bpm: () => bpm, userBpm: () => null,
-  setBpm: (v) => { bpm = +v || bpm; for (const d of decks) if (d.fx) d.fx.setTempo(bpm); if (dj) dj.retime(); },
+dj = new AutoDJ({ chans: decks, ctx: () => ctx, ensureAudio, bpm: () => bpm, userBpm: () => (R.live ? R.bpm || R.defaultBpm : null),
+  setBpm: (v) => { bpm = +v || bpm; for (const d of decks) if (d.fx) d.fx.setTempo(bpm); if (engine && engine.node) engine.node.port.postMessage({ type: 'tempo', bpm }); if (dj) dj.retime(); },
   status: say, paint: () => {}, readout: () => {}, brainName: () => 'radio' },
 // the radio's blend: the second track starts at bar 32, a long blend takes 64 bars with the bass swap in its middle,
 // a track lives 128 to 160 bars, a primary plays alone for one section at most (autodj.js, Planner)
@@ -516,6 +595,7 @@ async function startRadio() {
   if (ctx.state !== 'running') await ctx.resume();
   playingNow = true;
   paintControls();
+  if (R.live) { if (R.bpm == null) bpm = R.defaultBpm; await ensureEngine(); }
   if (!dj.on) { await dj.start('approved'); soon(); }
 }
 // The Auto DJ starts a set on the bar line after the one it is armed at. When it is armed (no deck plays yet), the
@@ -524,6 +604,7 @@ function soon() {
   if (!ctx || !dj.on) return;
   const t = ctx.currentTime + 0.25 - barLen();
   if (clock.next > t) clock.next = t;
+  alignEngine(clock.next + barLen());              // the set's first line: the instrument's next bar too
 }
 async function togglePlay() {
   if (!playingNow) return startRadio();
@@ -571,7 +652,7 @@ function openSettings() {
   closePanels();
   $('apiUrl').value = R.api || '';
   $('radioState').textContent = R.note + (R.error ? ` (${R.error})` : '');
-  $('apiState').textContent = R.live ? `Live brain found at ${R.api}. Live playback arrives with the next update.` : R.detail || '';
+  $('apiState').textContent = R.live ? '' : R.detail || '';
   settings.hidden = false;
   if (!settings.querySelector('.toggles')) {
     const t = document.createElement('div'); t.className = 'toggles';

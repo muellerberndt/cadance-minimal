@@ -5,8 +5,9 @@
 // once from a store without them), and its note file ("score": the bars as the brain wrote them, with its recorded
 // view) for the views, and the sound pool a track names. The brains take turns by their weight, and a brain's tracks
 // come at random by their weight (the pick, below); the manifest is read again as the set goes, so new tracks and
-// weights count without a reload. The setting "Live brain (server URL)" is checked here at load: in this version a
-// live brain is reported, and the radio plays on.
+// weights count without a reload. The setting "Live brain (server URL)": a server that answers takes over the Auto
+// DJ's calls (site/serve.py, its track factory: the tracks a brain composes now, its kept tracks, its repertoire);
+// when it stops answering, the set goes on with the store's tracks from the next entry.
 (() => {
   const STORE = 'https://cadance-radio.s3.amazonaws.com';       // the public track store (tracks.json, tracks/<id>.mp3)
   const KEY = 'cadance.api';
@@ -22,18 +23,39 @@
   const state = { mode: 'radio', api, note: OFFLINE, detail: '', played: [], tracks: 0, store: base, error: '', defaultBpm: 145, bpm: null };
   window.__radio = state;
 
-  // a live brain: the URL answers /api/status within 4 s (in this version it is reported; the radio plays)
-  state.ready = (async () => {
-    if (!api) return 'radio';
-    const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 4000);
+  // ---------- a live brain: the server's track factory, while it answers ----------
+  // Its tracks are named live:<its id> here. A call has 8 s (the status 4 s); a call that fails puts the set back on
+  // the store from the next entry (the track on a deck plays on what it has), and the server is asked again every 30 s.
+  const LIVE = 'live:', FOUND = `Live brain at ${api}: the set takes its tracks from it`;
+  async function server(path, init = {}, ms = 8000) {
+    const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), ms);
     try {
-      const r = await realFetch(`${api}/api/status`, { cache: 'no-store', signal: ctl.signal });
-      if (r.ok) { state.live = true; state.note = `Live brain found at ${api}. Live playback arrives with the next update; the radio plays.`; }
-      else state.detail = `${api} answered ${r.status}`;
-    } catch (e) { state.detail = `${api} does not answer (${e.name === 'AbortError' ? 'no reply in 4 s' : 'not reachable'})`; }
+      const r = await realFetch(`${api}${path}`, { ...init, signal: ctl.signal, cache: 'no-store' });
+      if (!r.ok) throw new Error(`it answered ${r.status}`);
+      return await r.json();
+    } catch (e) { throw new Error(e.name === 'AbortError' ? `no reply in ${ms / 1000} s` : e.message || 'not reachable'); }
     finally { clearTimeout(timer); }
-    return 'radio';
-  })();
+  }
+  const post = (path, body) => server(path, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify(body) });
+  function down(e) {
+    if (!state.live) return;
+    state.live = false; state.note = OFFLINE; state.detail = `${api} stopped answering (${e.message}); asked again every 30 s`;
+    console.info(`radio: ${state.detail}`);
+    clearTimeout(state.retry); state.retry = setTimeout(probeLive, 30000);
+  }
+  async function probeLive() {
+    try {
+      await server('/api/status', {}, 4000);
+      state.live = true; state.note = FOUND; state.detail = '';
+    } catch (e) {
+      state.detail = `${api} does not answer (${e.message})`;
+      if (state.wasLive) state.retry = setTimeout(probeLive, 30000);
+    }
+    if (state.live) state.wasLive = true;
+    return state.live ? 'live' : 'radio';
+  }
+  state.ready = api ? probeLive() : Promise.resolve('radio');
+  state.isLive = (id) => String(id || '').startsWith(LIVE);
 
   // ---------- the store ----------
   let list = null, last = null, serial = 0, listAt = 0, brainWeights = {};
@@ -263,17 +285,30 @@
     let body = {};
     try { body = init && init.body ? JSON.parse(init.body) : {}; } catch { body = {}; }
     if (path === '/api/autodj/models' || path === '/api/autodj/approved') {
+      if (state.live) try { return json(await server('/api/autodj/models')); } catch (e) { down(e); }
       return json({ leader: null, models: [], repertoire: 0, approved: ['checkpoint:radio'], passed: null, leader_gate: null });
     }
     if (path === '/api/autodj/track' && method === 'POST') {
+      // live: the server's track (composed now, kept, or a repertoire piece); a stand-in it does not have, or a server
+      // that does not answer, is a track of the store
+      if (state.live) {
+        try { const j = await post('/api/autodj/track', body); if (j.id) return json({ id: LIVE + j.id }); } catch (e) { down(e); }
+      }
       if (body.model === 'repertoire') return json({ id: null });
       if (warm) { const h = warm; warm = null; h.kept = !!body.kept_only; return json({ id: h.id }); }      // the track read ahead
       const entry = await nextEntry();
       if (!entry) return json({ id: null });
       return json({ id: hand(entry, !!body.kept_only).id });
     }
+    const id = u.searchParams.get('id') || '';
+    if (id.startsWith(LIVE) && (path === '/api/autodj/track' || path === '/api/autodj/pool')) {
+      try {
+        const j = await server(`${path}?id=${encodeURIComponent(id.slice(LIVE.length))}&from=${+u.searchParams.get('from') || 0}`);
+        return json(path === '/api/autodj/track' ? { ...j, id } : j);
+      } catch (e) { down(e); return json({ error: 'the live brain does not answer' }); }
+    }
     if (path === '/api/autodj/track') {
-      const h = handed.get(u.searchParams.get('id'));
+      const h = handed.get(id);
       if (!h) return json({ error: 'no such track' });
       if (h.error) return json({ error: h.error });
       const n = h.entry.bars;
@@ -283,6 +318,9 @@
         checkpoint: h.entry.brain, kept: h.kept, state: 'idle', layout: (h.notes && h.notes.layout) || null });
     }
     if (path === '/api/autodj/pool') return json({});                        // a file deck needs no pool
+    if ((path === '/api/autodj/keep' || path === '/api/autodj/stop') && state.live) {   // the server's tracks: its own names
+      post(path, { ...body, ids: (body.ids || []).filter((x) => String(x).startsWith(LIVE)).map((x) => String(x).slice(LIVE.length)) }).catch(down);
+    }
     if (path === '/api/autodj/keep') {
       const keep = new Set(body.ids || []);
       for (const [id, h] of handed) if (!keep.has(id) && !(state.onDeck || new Set()).has(id) && h !== warm) { release(id); handed.delete(id); }
