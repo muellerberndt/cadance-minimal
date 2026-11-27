@@ -3,7 +3,7 @@
 // clock of the AudioContext: each bar line comes 240 / bpm after the one before, and a deck's MP3 starts on a bar line
 // (AudioBufferSourceNode.start(when, offset)), so two decks run in time to the sample. The views follow the deck in
 // front: the brain stage (brainstage.js, from the track's note file: the bars as the brain wrote them, with its
-// recorded view), the devices (devices.js), brainviz's MRI and other modes, and the Auto DJ's decks. The page writes
+// recorded view), the devices (devices.js), brainviz's MRI and other modes, and the Auto DJ's decks (mixerstage.js). The page writes
 // nothing of what plays (owner, 27 Nov): no brain names, no track numbers, no DJ text; the controls are icons, and the
 // state (radio or live) is in the settings. For tests, window.__radioApp.state() reads it all.
 import { AutoDJ } from './autodj.js';
@@ -11,6 +11,7 @@ import { BrainStage } from './brainstage.js';
 import { BrainViz, MODE_GROUPS } from './brainviz.js';
 import { Devices } from './devices.js';
 import { FxUnit } from './djfx.js';
+import { MixerStage } from './mixerstage.js';
 
 const R = window.__radio;
 await R.ready;
@@ -22,6 +23,7 @@ const store = {
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const q = new URLSearchParams(location.search);
 const DECKS = 3;
+const PRE = 0.63;                     // a deck's input gain, as on the mixer: two decks at full level stay out of the limiter
 const TAGLINE = 'Build real-time brains that work like human brains.';
 const LAW = {        // knob position 0..1 -> value, as on the mixer
   eq: { val: (p) => (p <= 0.015 ? -40 : p < 0.5 ? (-26 * (0.5 - p)) / 0.485 : (6 * (p - 0.5)) / 0.5) },
@@ -42,6 +44,8 @@ function ensureAudio() {
   if (ctx) return Promise.resolve();
   if (starting) return starting;
   starting = (async () => {
+    // on an iPhone, sound in spite of the silent switch, as a music app (Safari's audio session; elsewhere absent)
+    try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch { /* older Safari */ }
     const c = new AudioContext({ sampleRate: 44100, latencyHint: 'playback' });
     vol = c.createGain(); vol.gain.value = store.get('volume', 0.8);
     master = c.createGain();
@@ -51,6 +55,8 @@ function ensureAudio() {
     ctx = c;
     viz.listen(c, master);
     const an = c.createAnalyser(); an.fftSize = 2048; master.connect(an); hero.setAudio(an);
+    Object.assign(window.__radioApp, { master, analyser: an });          // for a view of the mix (the mixer stage)
+    mixAudio();
     for (const d of decks) d.build();
     clock.t0 = clock.next = c.currentTime + 0.3; clock.bar = 0;
     clock.timer = setInterval(tick, 25);
@@ -64,6 +70,7 @@ function tick() {                     // the bar lines within the next 150 ms: t
     clock.next = t + barLen();
     try { if (dj) dj.onBar(G, t); } catch (e) { say(`auto dj: ${e.message}`); }
     for (const d of decks) later(t, () => d.onBar(G, t));
+    if (mixer) mixer.setClock({ ctx, bpm, barZeroTime: t - G * barLen() });
     const len = barLen();
     for (let s = 0; s < 16; s++) later(t + (s * len) / 16, () => { clock.step = s; clock.stepAt = performance.now(); stepViews(s); });
     if (G % ((dj && dj.section) || 32) === 0) later(t, () => vjSection(G));
@@ -85,7 +92,7 @@ class Deck {
                lp: bq('lowpass', 22000, 0.9), cut: g(), fader: g(), meter: ctx.createAnalyser(), pre: g() };
     this.n.meter.fftSize = 512;
     this.fx = new FxUnit(ctx); this.fx.setTempo(bpm); this.fx.setType(this.p.fxType);
-    this.n.pre.gain.value = 0.63;                         // as on the mixer: two decks at full level stay out of the limiter
+    this.n.pre.gain.value = PRE;
     this.n.pre.connect(this.n.lo);
     const chain = ['lo', 'mid', 'hi', 'hp', 'lp', 'cut'].map((k) => this.n[k]).concat([this.fx.input]);
     for (let i = 0; i < chain.length - 1; i++) chain[i].connect(chain[i + 1]);
@@ -140,25 +147,68 @@ class Deck {
     this.startBar = clock.bar; const line = clock.next;          // the next bar line is bar clock.bar
     trackNo++; track.no = trackNo;
     (R.onDeck ||= new Set()).add(track.id);
+    // the file's loudness, trimmed to -16 LUFS at the deck's input (at most 3 dB either way; no measure, no trim)
+    const h = R.track(track.id), lufs = h && h.entry ? +h.entry.lufs : NaN;
+    this.trim = Number.isFinite(lufs) && h.entry.lufs !== null ? clamp(-16 - lufs, -3, 3) : 0;
+    this.n.pre.gain.setValueAtTime(PRE * Math.pow(10, this.trim / 20), ctx.currentTime);
     pulse('cue', this.d);
-    R.decode(track.id).then((buf) => this.play(buf, track, line)).catch((e) => {
+    if (mixer) { mixer.setTrack(this.d, mixTrack(this)); mixer.setWave(this.d, { bars: track.bars }); }      // the note wave first
+    (async () => {
+      if (await R.ranged(track.id)) return this.segments(track, line);     // by segments: a store with byte ranges
+      this.play(await R.decode(track.id), track, line);                    // the whole track at once
+    })().catch((e) => {
       if (this.track !== track) return;
       say(`${e.message}: the next track is tried`);
       this.failed = true;
     });
   }
-  play(buf, track, line) {
+  // By segments of 16 bars (9 MB of decoded sound at 145 bpm), each read and decoded when less than 20 s of the deck
+  // is scheduled, so a deck holds two at most. Segment k covers the samples [S(a), S(b)) of the track (S(bar) =
+  // round(bar * 240 / bpm * 44100)) and starts at line + S(a) / 44100: the segments abut to the sample and every bar line
+  // falls where the clock has it. A segment that is ready late starts at once with the offset that keeps it on the
+  // grid. Past the track's end its last 32 bars go round, as its two last segments read again.
+  async segments(track, line) {
+    const sr = 44100, len = barLen(), n = track.bars.length, SEG = 16, AHEAD = 20;
+    const S = (b) => Math.round(b * len * sr), g = ctx.createGain();
+    g.connect(this.n.pre);
+    const run = { track, g, list: [], end: 0, busy: false, b: 0, at: line };
+    this.run = run; this.src = { g, run }; this.mode = 'segments';
+    const next = async () => {
+      // the bars [a, e) of the track: in order to its end, then its last 32 bars round and round
+      const a = run.b < n ? run.b : Math.max(0, n - 32) + ((run.b - n) % Math.min(32, n)), e = Math.min(n, a + SEG);
+      const buf = await R.pcm(track.id, S(a), S(e));
+      if (this.run !== run || !ctx) return;
+      const at = run.at, t = Math.max(at, ctx.currentTime + 0.03);
+      const s = ctx.createBufferSource();
+      s.buffer = buf; s.connect(g); s.start(t, t - at);
+      run.list.push(s); s.onended = () => { run.list = run.list.filter((x) => x !== s); };
+      if (mixer && run.b < n) mixer.addWave(this.d, { fromBar: a, audio: buf });              // the sound's wave, as it comes
+      run.at = at + buf.length / sr; run.end = run.at; run.b += e - a;
+      if (window.__radioApp) (window.__radioApp.segments ||= []).push({ deck: this.d, id: track.id, from: a, to: e, at, t, offset: t - at, samples: buf.length });
+    };
+    await next();
+    if (window.__radioApp) (window.__radioApp.starts ||= []).push({ deck: this.d, id: track.id, when: line, line, bar: this.startBar, segments: true });
+    run.timer = setInterval(async () => {
+      if (this.run !== run) { clearInterval(run.timer); return; }
+      if (run.busy || !ctx || run.end - ctx.currentTime > AHEAD) return;
+      run.busy = true;
+      try { await next(); } catch (e) { say(`${e.message}: the next track is tried`); }
+      run.busy = false;
+    }, 1000);
+  }
+  play(buf, track, line) {                         // the whole track as one buffer (a store without byte ranges)
     if (this.track !== track || !ctx) return;
     const len = barLen(), soon = ctx.currentTime + 0.06;
     let k = 0, when = line;
     if (when < soon) { k = Math.ceil((soon - when) / len); when += k * len; }       // decoded late: in on a later line
     const s = ctx.createBufferSource(), g = ctx.createGain();
-    s.buffer = buf; this.buffer = buf;                    // the decoded track, for the mixer view's waveform
+    s.buffer = buf; this.buffer = buf;
     const n = track.bars.length;
     if (n >= 32 && buf.duration >= n * len) { s.loop = true; s.loopStart = (n - 32) * len; s.loopEnd = n * len; }  // past the end its last section goes round
     s.connect(g); g.connect(this.n.pre);
     s.start(when, k * len);
-    this.src = { s, g };
+    this.src = { s, g }; this.mode = 'whole';
+    if (mixer) mixer.setWave(this.d, buf);
     if (window.__radioApp) (window.__radioApp.starts ||= []).push({ deck: this.d, id: track.id, when, line, offset: k * len, bar: this.startBar + k });
   }
   onBar(G, t) {
@@ -174,13 +224,15 @@ class Deck {
     if (!tr) return;
     this.track = null; this.playing = false; this.now = null; this.failed = false; this.buffer = null;
     pulse('leave', this.d);
-    if (this.src && ctx) {
-      const { s, g } = this.src, t = ctx.currentTime;
+    if (mixer) { mixer.setTrack(this.d, null); mixer.setWave(this.d, null); }
+    if (this.src && ctx) {                        // the sounding sources fade out in 10 ms and stop
+      const { s, g, run } = this.src, t = ctx.currentTime, all = run ? run.list : [s];
       g.gain.setTargetAtTime(0, t, 0.01);
-      try { s.stop(t + 0.08); } catch { /* not started */ }
-      setTimeout(() => { try { s.disconnect(); g.disconnect(); } catch { /* gone */ } }, 300);
+      for (const x of all) { try { x.stop(t + 0.08); } catch { /* not started */ } }
+      setTimeout(() => { try { for (const x of all) x.disconnect(); g.disconnect(); } catch { /* gone */ } }, 300);
+      if (run) clearInterval(run.timer);
     }
-    this.src = null;
+    this.src = null; this.run = null;
     if (R.onDeck) R.onDeck.delete(tr.id);
     R.release(tr.id);
   }
@@ -190,6 +242,36 @@ class Deck {
   light() {}
 }
 const decks = Array.from({ length: DECKS }, (_, d) => new Deck(d));
+// the mixer stage (mixerstage.js), built when the DJ view first shows (its shaders take about 130 ms): the decks'
+// tracks and waves, their meters, the master, the clock and a reader of the planner's state; without WebGL the DJ
+// view is the plain canvas below
+let mixer = null, mixerTried = false;
+const mixTrack = (d) => ({ id: d.track.id, bars: d.track.bars.length, startBar: d.startBar, loopFrom: Math.max(0, d.track.bars.length - 32) });
+function mixerStage() {
+  if (mixerTried) return mixer;
+  mixerTried = true;
+  const m = new MixerStage($('mixv'), { decks: DECKS, calm: calm() });
+  if (!m.ok) { say(`mixer stage: ${m.error || 'no WebGL'}`); return null; }
+  mixer = m;
+  mixer.setReader(() => {
+    const P = dj.planner;
+    return { bar: dj.clock && ctx ? Math.floor(dj.posOf(ctx.currentTime)) : 0,
+      decks: decks.map((d) => ({ playing: !!d.track && d.playing, role: d.role || '', fxType: d.p.fxType,
+        knobs: { fader: d.p.fader, lo: d.p.lo, mid: d.p.mid, hi: d.p.hi, hp: d.p.hp, lp: d.p.lp, fx: d.p.fx, cut: d.p.cut ?? 1 } })),
+      dj: { on: dj.on, primary: P ? P.primary : -1, section: dj.section, nextStart: P ? P.nextStart : null,
+        transitions: P ? P.active.map((t) => ({ in: t.in, out: t.out, start: t.start, swap: t.swap, end: t.end })) : [] } };
+  });
+  pulseTo.push((kind, deck) => mixer.pulse(kind, deck));
+  mixAudio();
+  for (const d of decks) if (d.track) { mixer.setTrack(d.d, mixTrack(d)); mixer.setWave(d.d, d.buffer || { bars: d.track.bars }); }
+  return mixer;
+}
+function mixAudio() {                             // once the sound is up: the master and the decks' meters, the clock
+  if (!mixer || !ctx || !window.__radioApp.analyser) return;
+  mixer.setAudio(window.__radioApp.analyser);
+  for (const d of decks) if (d.n) mixer.setMeter(d.d, d.n.meter);
+  if (dj.clock) mixer.setClock({ ctx, bpm, barZeroTime: dj.clock.t - dj.clock.G * barLen() });
+}
 // the Auto DJ's moments, for a view that marks them: 'cue' (a track goes onto a deck), 'swap' (a deck becomes the
 // primary), 'leave' (a deck's track ends), 'gate' (the gater opens on a deck this bar)
 const pulseTo = [];
@@ -354,16 +436,23 @@ function setView(v) {
   if (v === 'brain' && !HERO) viz.setMode('compact');
   else if (v === 'mri') viz.setMode('mri');
   else if (v.startsWith('m:')) viz.setMode(v.slice(2));
-  $('hero').hidden = !heroOn; $('viz').hidden = !vizOn; $('devices').hidden = v !== 'devices'; djc.hidden = v !== 'dj';
+  const mixOn = v === 'dj' && !!mixerStage();            // one WebGL view draws at a time
+  $('hero').hidden = !heroOn; $('viz').hidden = !vizOn; $('devices').hidden = v !== 'devices'; djc.hidden = v !== 'dj' || mixOn; $('mixv').hidden = !mixOn;
   document.body.dataset.view = v.startsWith('m:') ? 'more' : v;
-  if (heroOn) { fitHero(); hero.start(); } else hero.stop();
+  if (heroOn) { fitStage('hero', hero); hero.start(); } else hero.stop();
+  if (mixOn) { fitStage('mixv', mixer); mixer.start(); } else if (mixer) mixer.stop();
   if (!vizOn && viz.gl3) viz.gl3.hide();
   for (const b of document.querySelectorAll('#views [data-view]')) b.classList.toggle('on', b.dataset.view === (v.startsWith('m:') ? 'more' : v));
 }
 setView(view);
-// the stage ends above the controls, so its labels at the bottom stay in view
-function fitHero() { $('hero').style.height = `calc(100% - ${$('bar').offsetHeight}px)`; hero.resize(); }
-addEventListener('resize', () => { if (!$('hero').hidden) fitHero(); });
+// a stage ends above the controls, so what it draws at the bottom stays in view; the mixer also starts below the
+// wordmark and the claim (its decks' controls stand at the left edge)
+function fitStage(id, stage) {
+  const top = id === 'mixv' ? Math.round(document.querySelector('.brand').getBoundingClientRect().bottom + 6) : 0;
+  Object.assign($(id).style, { top: `${top}px`, height: `calc(100% - ${top + $('bar').offsetHeight}px)` });
+  stage.resize();
+}
+addEventListener('resize', () => { if (!$('hero').hidden) fitStage('hero', hero); if (mixer && !$('mixv').hidden) fitStage('mixv', mixer); });
 
 function frame() {
   requestAnimationFrame(frame);
@@ -371,7 +460,7 @@ function frame() {
   const ms = 15000 / bpm, playing = decks.some((d) => d.playing);
   const phase = playing && clock.step >= 0 ? Math.min(0.999, (clock.step + Math.min(1, (performance.now() - clock.stepAt) / ms)) / 16) : 0;
   if (view === 'devices') { devv.setSecond(secondDeck()); devv.draw(phase); }
-  else if (view === 'dj') drawDJ();
+  else if (view === 'dj') { if (!mixer) drawDJ(); }
   else if (!(view === 'brain' && HERO)) viz.frame(phase, ms);
 }
 requestAnimationFrame(frame);
@@ -385,7 +474,7 @@ dj = new AutoDJ({ chans: decks, ctx: () => ctx, ensureAudio, bpm: () => bpm, use
 // a track lives 128 to 160 bars, a primary plays alone for one section at most (autodj.js, Planner)
 { section: clamp(+q.get('section') || 32, 4, 32), blend: { swaps: [64], swapAt: 32, solo: [1, 1, 2] } });
 dj.debug = q.has('djdebug');
-window.__radioApp = { dj, decks, viz, hero, devices: devv, clock, ctx: () => ctx, starts: [], setView, notes, state: () => state(), onPulse: (fn) => pulseTo.push(fn) };
+window.__radioApp = { dj, decks, viz, hero, mixer: () => mixer, devices: devv, clock, ctx: () => ctx, starts: [], setView, notes, state: () => state(), onPulse: (fn) => pulseTo.push(fn) };
 
 // ---------- the controls ----------
 let playingNow = false;
@@ -406,7 +495,8 @@ function state() {
   const f = front(), P = dj.planner;
   return { radio: R.note, live: !!R.live, error: R.error || '', tracks: R.tracks, playing: playingNow, running: !!ctx && ctx.state === 'running', bpm, view,
     front: f && f.track ? { deck: f.d, checkpoint: f.track.checkpoint, track: f.track.no, bar: f.trackAt } : null,
-    decks: decks.map((d) => (d.track ? { track: d.track.no, checkpoint: d.track.checkpoint, role: d.role, bar: d.trackAt, fader: d.p.fader } : null)),
+    decks: decks.map((d) => (d.track ? { track: d.track.no, checkpoint: d.track.checkpoint, role: d.role, bar: d.trackAt, fader: d.p.fader, mode: d.mode, trim: d.trim,
+      held: d.run ? d.run.list.reduce((b, x) => b + (x.buffer ? x.buffer.length * x.buffer.numberOfChannels * 4 : 0), 0) : d.buffer ? d.buffer.length * d.buffer.numberOfChannels * 4 : 0 } : null)),
     dj: { line: djLine(), primary: P ? P.primary : null, nextStart: P ? P.nextStart : null, active: P ? P.active.map((t) => ({ ...t })) : [] },
     devices: devNote, notes: notes.slice() };
 }
@@ -421,8 +511,15 @@ async function startRadio() {
   await ensureAudio();
   if (ctx.state !== 'running') await ctx.resume();
   playingNow = true;
-  if (!dj.on) dj.start('approved');
   paintControls();
+  if (!dj.on) { await dj.start('approved'); soon(); }
+}
+// The Auto DJ starts a set on the bar line after the one it is armed at. When it is armed (no deck plays yet), the
+// clock is set back so that this line lies in the past and the set's first line comes in a quarter of a second.
+function soon() {
+  if (!ctx || !dj.on) return;
+  const t = ctx.currentTime + 0.25 - barLen();
+  if (clock.next > t) clock.next = t;
 }
 async function togglePlay() {
   if (!playingNow) return startRadio();
@@ -432,7 +529,7 @@ async function togglePlay() {
 async function nextTrack() {
   if (!playingNow) return startRadio();
   dj.stop(); for (const d of decks) d.endTrack();
-  dj.start('approved');
+  await dj.start('approved'); soon();
 }
 function paintBig() {
   const b = $('bigPlayB');
@@ -448,7 +545,7 @@ volume.value = store.get('volume', 0.8);
 volume.oninput = () => { store.set('volume', +volume.value); if (vol) vol.gain.setTargetAtTime(+volume.value, ctx.currentTime, 0.02); };
 const full = () => { if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen?.().catch(() => {}); };
 $('fullB').onclick = full;
-document.addEventListener('fullscreenchange', () => setTimeout(() => { viz.resize(); if (!$('hero').hidden) fitHero(); }, 60));
+document.addEventListener('fullscreenchange', () => setTimeout(() => { viz.resize(); if (!$('hero').hidden) fitStage('hero', hero); if (mixer && !$('mixv').hidden) fitStage('mixv', mixer); }, 60));
 addEventListener('keydown', (e) => {
   if (/INPUT|SELECT|TEXTAREA/.test(e.target.tagName) || e.metaKey || e.ctrlKey || e.altKey) return;
   if (e.key === 'f') full();
@@ -460,6 +557,7 @@ addEventListener('keydown', (e) => {
 // the store: an empty list waits; the list is read again every minute until it has tracks
 (async () => {
   await R.manifest(); R.listed = true; paintBig();
+  setTimeout(() => R.warm(), 1500);                    // the first track read ahead, once the page is up
   const again = setInterval(async () => { if (R.tracks) return clearInterval(again); await R.manifest(true); paintBig(); }, 60000);
 })();
 
@@ -482,6 +580,7 @@ function openSettings() {
 }
 function paintCalm() {
   document.querySelector('.scan').hidden = calm(); hero.setCalm(calm()); if (calm()) hero.setScene('wired');
+  if (mixer) mixer.setCalm(calm());
   $('calmB').setAttribute('aria-pressed', String(calm()));
   if ($('calmT')) $('calmT').checked = !!store.get('calm', false);
 }
