@@ -6,7 +6,7 @@
 
 page: the gh-pages folder: index.html (site/radio.html), radio.css, the scripts (radio.js: the track store and the
 page's /api calls; radio-app.js: the page; autodj.js, brainstage.js, brainviz.js, djfx.js, mixerstage.js, devices.js
-with the engine's ui.mjs and engine.mjs for the devices view), the favicon and the consent script (site/brand/), the preview
+with the engine's ui.mjs; engine.mjs with deckworklet.js, the instrument that plays a live brain's tracks), the favicon and the consent script (site/brand/), the preview
 image og.png (site/brand/og.png, made from site/brand/social-card.html), the one brain file the 3D views draw (site/.brain3d/<brain>.v*.b3d, made by the player, as
 brain3d/brain.b3d), CNAME and .nojekyll. The page plays MP3s; it carries no score, pool or sample (--engine, the
 decks that render the notes in the browser, comes with the next update).
@@ -28,7 +28,8 @@ ROOT = Path(__file__).resolve().parents[1]
 SITE = ROOT / "site"
 PAGE = {"index.html": SITE / "radio.html", "radio.css": SITE / "radio.css", "radio.js": SITE / "radio.js", "radio-app.js": SITE / "radio-app.js",
         "autodj.js": SITE / "autodj.js", "brainstage.js": SITE / "brainstage.js", "brainviz.js": SITE / "brainviz.js", "djfx.js": SITE / "djfx.js",
-        "devices.js": SITE / "devices.js", "mixerstage.js": SITE / "mixerstage.js", "ui.mjs": ROOT / "engine" / "ui.mjs", "engine.mjs": ROOT / "engine" / "engine.mjs",
+        "devices.js": SITE / "devices.js", "mixerstage.js": SITE / "mixerstage.js", "deckworklet.js": SITE / "deckworklet.js",
+        "ui.mjs": ROOT / "engine" / "ui.mjs", "engine.mjs": ROOT / "engine" / "engine.mjs",
         "favicon.svg": SITE / "brand" / "favicon.svg", "assets/consent.js": SITE / "brand" / "consent.js"}
 BINARY = {"og.png": SITE / "brand" / "og.png"}         # the preview image of a shared link (made from site/brand/social-card.html)
 NOTE_KEYS = {"brain", "bpm", "pool", "layout", "bars"}

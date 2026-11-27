@@ -126,7 +126,7 @@ only someone who may write the store can change what the radio plays.
 ## A live composer for the radio site
 
 A live composer is this repository's player server with a brain loaded. The radio page talks to it
-when you name its address in the page's settings (the gear icon, "Live composer server (API URL)").
+when you name its address in the page's settings (the gear icon, "Live brain (server URL)").
 
 What it takes:
 
@@ -135,17 +135,22 @@ What it takes:
    `pool/`) and the score it names (in `corpus/`, for starting passages). None of the three is
    shipped. [brains.md](brains.md) says how the brains were built and trained and
    [score.md](score.md) how a score is made.
-3. About 2 GB of memory for the brain. A bar takes about 2 seconds on a laptop CPU, about as long
-   as the bar lasts.
+3. About 2 GB of memory for the brain. A bar takes 2 to 2.5 seconds on a laptop CPU, longer than it
+   lasts at the radio's 145 bpm (1.66 s). The Auto DJ then plays the brain's kept tracks (and the
+   stored ones), and a track being composed comes in once enough of it lies ahead.
 4. `python site/serve.py`. The server listens on 127.0.0.1, port 8792.
-5. On the radio page: the gear icon, the address `http://127.0.0.1:8792`, save. The status reads
-   "Live composer connected" when the server answers, and the page then behaves as the mixer of
-   the local player.
+5. On the radio page: the gear icon, the address `http://127.0.0.1:8792`, save. The settings then
+   read "Live brain at http://127.0.0.1:8792: the set takes its tracks from it". The Auto DJ takes
+   its tracks from the server's track factory: the tracks the brain composes, its kept tracks and its
+   repertoire, played in the browser by the instrument (`engine/engine.mjs`) on the radio's bar clock
+   beside the stored tracks. When the server stops answering, the set goes on with the stored tracks
+   from the next track on, and the page asks the server again every 30 seconds.
 
 The server answers the radio site's origin and local pages (`CADANCE_CORS_ORIGINS` adds origins,
-comma separated). A browser lets an https page call a server on the same computer over http. A
-server on another machine needs an https address in front of it, and it has no access control of
-its own: put it behind something that has.
+comma separated). A server on this computer: the browser asks once for access to the local network
+(Chrome's local network access); allow it. A server on another machine must be reached over https;
+the plain way is a tunnel that gives it an https address. It has no access control of its own: put
+it behind something that has.
 
 ## Hosting without a server
 

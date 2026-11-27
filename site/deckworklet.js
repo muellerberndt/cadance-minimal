@@ -1,7 +1,8 @@
 // AudioWorklet of the mixer view: three instruments (engine.mjs), one per deck, on ONE clock. All three engines are
 // made together and step in the same render quanta at the same tempo, so their bars start on the same sample: a deck
 // that starts later comes in on the next bar line, in time with the others. Each deck has its own stereo output,
-// which the page runs through its channel strip (EQ, filters, fader).
+// which the page runs through its channel strip (EQ, filters, fader). The radio page (radio-app.js) sets where the
+// engines' bars begin: 'align' puts the next bar line of every engine on a frame of the context's clock, its own.
 import { Engine } from './engine.mjs';
 
 const DECKS = 3;
@@ -28,6 +29,8 @@ class DeckProcessor extends AudioWorkletProcessor {
           for (const g of this.engines) g.setBalance(m.on, m.ratio, m.rangeDb, m);
         } else if (m.type === 'tempo') {                  // one tempo for all decks (they share the clock)
           for (const g of this.engines) g.setTempo(m.bpm);
+        } else if (m.type === 'align') {                  // the next bar of every engine begins at this context frame
+          for (const g of this.engines) { g.nextStep = m.frame - (this.base ?? currentFrame); g.stepIdx = 15; }
         } else if (eng && m.type === 'pool') {
           eng.setPool(m.pool);
         } else if (eng && m.type === 'queue') {
@@ -44,6 +47,7 @@ class DeckProcessor extends AudioWorkletProcessor {
   }
 
   process(inputs, outputs) {
+    this.base = currentFrame - this.engines[0].frame;    // a context frame minus the engines' frame: the same for all, for good
     for (let d = 0; d < DECKS; d++) {
       const out = outputs[d];
       this.engines[d].q0 = this.engines[d].frame;
