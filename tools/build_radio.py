@@ -6,7 +6,7 @@
 
 page: the gh-pages folder: index.html (site/radio.html), radio.css, the scripts (radio.js: the track store and the
 page's /api calls; radio-app.js: the page; autodj.js, brainviz.js, djfx.js), the favicon and the consent script
-(site/brand/), the one brain file the 3D views draw (site/.brain3d/<brain>.v*.b3d, made by the player, as
+(site/brand/), the preview image og.png (site/brand/og.png, made from site/brand/social-card.html), the one brain file the 3D views draw (site/.brain3d/<brain>.v*.b3d, made by the player, as
 brain3d/brain.b3d), CNAME and .nojekyll. The page plays MP3s; it carries no score, pool or sample (--engine, the
 decks that render the notes in the browser, comes with the next update).
 
@@ -28,6 +28,7 @@ SITE = ROOT / "site"
 PAGE = {"index.html": SITE / "radio.html", "radio.css": SITE / "radio.css", "radio.js": SITE / "radio.js", "radio-app.js": SITE / "radio-app.js",
         "autodj.js": SITE / "autodj.js", "brainviz.js": SITE / "brainviz.js", "djfx.js": SITE / "djfx.js",
         "favicon.svg": SITE / "brand" / "favicon.svg", "assets/consent.js": SITE / "brand" / "consent.js"}
+BINARY = {"og.png": SITE / "brand" / "og.png"}         # the preview image of a shared link (made from site/brand/social-card.html)
 NOTE_KEYS = {"brain", "bpm", "pool", "layout", "bars"}
 BAR_KEYS = {"tokens", "mods", "patterns", "patches", "view", "bar"}
 CNAME = "cadance.floatingpragma.ai"
@@ -101,6 +102,8 @@ def page(args):
         text = src.read_text()
         checked(name, {text}, [re.compile(p) for p in (r"/Users/", r"s3://", r"\bec2-")])
         (out / name).write_text(text)
+    for name, src in BINARY.items():
+        shutil.copyfile(src, out / name)
     made = sorted((SITE / ".brain3d").glob(f"{args.brain}.v*.b3d"), key=lambda p: p.stat().st_mtime)
     if not made:
         sys.exit(f"no 3D view of {args.brain} in site/.brain3d (the player makes it the first time a page shows that brain in 3D)")
@@ -113,7 +116,7 @@ def page(args):
         (out / "CNAME").write_text(args.cname + "\n")
     (out / ".nojekyll").write_text("")
     size = sum(p.stat().st_size for p in out.rglob("*") if p.is_file())
-    print(f"{out}: the radio page, {len(PAGE)} files and the brain {args.brain} for the 3D views; {size / 1e6:.1f} MB")
+    print(f"{out}: the radio page, {len(PAGE) + len(BINARY)} files and the brain {args.brain} for the 3D views; {size / 1e6:.1f} MB")
 
 
 def manifest(args):

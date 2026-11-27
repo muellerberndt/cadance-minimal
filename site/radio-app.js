@@ -316,10 +316,18 @@ window.__radioApp = { dj, decks, viz, clock, ctx: () => ctx, starts: [], setView
 
 // ---------- the controls ----------
 const PLAIN = { slate_inst_reads_s2_echo2: 'deeper QUAD echo', slate_inst_reads_s2_echor: 'QUAD echo, returns only',
-  slate_split_s2_echor: 'DUO echo, returns only', slate_inst_reads_s2_echo: 'QUAD echo', slate_inst_reads_s2_echo2q: 'deeper QUAD echo, second run' };
+  slate_split_s2_echor: 'DUO echo, returns only', slate_split_s2_echorq: 'DUO echo, returns only, second run', slate_inst_reads_s2_echo: 'QUAD echo',
+  slate_inst_reads_s2_echo2q: 'deeper QUAD echo, second run' };
+const runOf = (ck) => String(ck || '').replace(/_(e\d+(b\d+)?|l\d{8}|latest)$/, '');
 function plainBrain(ck) {
-  const run = String(ck || '').replace(/_(e\d+(b\d+)?|l\d{8}|latest)$/, '');
+  const run = runOf(ck);
   return PLAIN[run] || run.replace(/^slate_/, '').replace(/_/g, ' ') || 'a Cadance brain';
+}
+// where the store holds tracks of two states of one run, the state's code tells them apart: "deeper QUAD echo · e001b008"
+function brainLabel(ck) {
+  const run = runOf(ck), code = (String(ck || '').match(/_(e\d+b\d+|e\d+|l\d{8})$/) || [])[1];
+  const states = new Set(R.entries().filter((t) => runOf(t.brain) === run).map((t) => t.brain));
+  return code && states.size > 1 ? `${plainBrain(ck)} · ${code}` : plainBrain(ck);
 }
 let playingNow = false;
 // what the Auto DJ does, in one short line: a track coming in, one leaving, or the primary alone until the next
@@ -340,7 +348,7 @@ function paintReadout() {
   st.toggleAttribute('data-live', !!R.live);
   const f = front();
   let what = '';
-  if (f && f.track) what = `${plainBrain(f.track.checkpoint)} · track ${f.track.no}`;
+  if (f && f.track) what = `${brainLabel(f.track.checkpoint)} · track ${f.track.no}`;
   else if (playingNow && !R.tracks) what = 'no tracks yet';
   else if (playingNow) what = 'the first track is loading';
   if (note) what = what ? `${what} · ${note}` : note;
