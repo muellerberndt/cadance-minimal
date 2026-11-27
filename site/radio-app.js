@@ -180,7 +180,7 @@ class Deck {
       if (this.run !== run || !ctx) return;
       const at = run.at, t = Math.max(at, ctx.currentTime + 0.03);
       const s = ctx.createBufferSource();
-      s.buffer = buf; s.connect(g); s.start(t, t - at);
+      s.buffer = buf; s.from = a; s.connect(g); s.start(t, t - at);
       run.list.push(s); s.onended = () => { run.list = run.list.filter((x) => x !== s); };
       if (mixer && run.b < n) mixer.addWave(this.d, { fromBar: a, audio: buf });              // the sound's wave, as it comes
       run.at = at + buf.length / sr; run.end = run.at; run.b += e - a;
@@ -263,7 +263,11 @@ function mixerStage() {
   });
   pulseTo.push((kind, deck) => mixer.pulse(kind, deck));
   mixAudio();
-  for (const d of decks) if (d.track) { mixer.setTrack(d.d, mixTrack(d)); mixer.setWave(d.d, d.buffer || { bars: d.track.bars }); }
+  for (const d of decks) {                        // the decks' tracks, and the sound of every segment they hold now
+    if (!d.track) continue;
+    mixer.setTrack(d.d, mixTrack(d)); mixer.setWave(d.d, d.buffer || { bars: d.track.bars });
+    if (d.run) for (const s of d.run.list) if (s.buffer && s.from < d.track.bars.length) mixer.addWave(d.d, { fromBar: s.from, audio: s.buffer });
+  }
   return mixer;
 }
 function mixAudio() {                             // once the sound is up: the master and the decks' meters, the clock
